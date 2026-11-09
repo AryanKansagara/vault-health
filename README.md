@@ -2,7 +2,7 @@
 
 Credential hygiene and offboarding planner for small teams. For the IT admin or office manager at a 10–200 person company who has a shared-password mess and someone leaving on Friday.
 
-Live: https://vault-health.vercel.app
+Live: https://vault-health-theta.vercel.app
 
 ## The pain
 

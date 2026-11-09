@@ -23,7 +23,10 @@ export function Link({ href, children, ...rest }: AnchorHTMLAttributes<HTMLAncho
 
 // ---------- Formatting ----------
 
-export const fmtDate = (iso: string | number) => new Date(typeof iso === 'number' ? iso : iso.length === 10 ? iso + 'T00:00:00Z' : iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' })
+// Calendar dates (YYYY-MM-DD) are shown as written; timestamps in the viewer's time zone.
+export const fmtDate = (v: string | number) => typeof v === 'string' && v.length === 10
+  ? new Date(v + 'T00:00:00Z').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' })
+  : new Date(v).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
 export const plural = (n: number, w: string, pl = w + 's') => `${n.toLocaleString()} ${n === 1 ? w : pl}`
 export const signed = (n: number) => (n > 0 ? '+' : n < 0 ? '−' : '±') + Math.abs(n)
 

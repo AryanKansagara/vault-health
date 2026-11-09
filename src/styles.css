@@ -322,7 +322,7 @@ input[type='range'] { padding: 0; border: 0; accent-color: var(--brand); backgro
 .node:focus-visible { outline: none; }
 .node:focus-visible circle { stroke: var(--accent); stroke-width: 3; }
 .vault-label { font: 600 11px var(--font-body); fill: var(--ink-2); paint-order: stroke; stroke: var(--surface); stroke-width: 4px; }
-.trend { width: 100%; height: auto; }
+.trend { width: 100%; max-width: 760px; height: auto; display: block; margin: 0 auto; }
 .trend .grid { stroke: var(--line-2); }
 .trend .axis { font: 10px var(--font-mono); fill: var(--ink-3); }
 .trend .line { fill: none; stroke: var(--brand); stroke-width: 2.5; stroke-linejoin: round; }
