@@ -41,11 +41,11 @@ function Hero() {
           <dl className="hero-stats">
             <div><dt>Breached</dt><dd className={d.sum.breached ? 'bad' : ''}>{d.sum.breached}</dd></div>
             <div><dt>Reused</dt><dd className={d.sum.reused ? 'bad' : ''}>{d.sum.reused}</dd></div>
-            <div><dt>Over a year old</dt><dd>{d.sum.old}</dd></div>
+            <div><dt>Old</dt><dd>{d.sum.old}</dd></div>
           </dl>
         </div>
         <div className="hero-graph-col">
-          <BlastGraph fs={d.eff} ctx={d.ctx} selected={sel} onSelect={setSel} healed={healed} height={360} />
+          <BlastGraph fs={d.eff} ctx={d.ctx} selected={sel} onSelect={setSel} healed={healed} width={400} height={380} />
         </div>
       </div>
       <div className="hero-actions" aria-live="polite">

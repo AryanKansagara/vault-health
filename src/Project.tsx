@@ -216,7 +216,7 @@ function Items({ p, d }: { p: Project; d: Derived }) {
                     {fixed && <span className="flag good">rotated {fmtDate(p.fixed[f.id])}</span>}
                   </div></td>
                   <td className="num"><SevPill r={r} /></td>
-                  <td>{fixed ? <button type="button" className="btn ghost sm" onClick={() => markRotated(p, [f.id], false)}>Undo</button> : r > 0 && <button type="button" className="btn ghost sm" onClick={() => markRotated(p, [f.id, ...sib.map(x => x.id)])}>Rotated</button>}</td>
+                  <td>{fixed ? <button type="button" className="btn ghost sm" onClick={() => markRotated(p, [f.id], false)}>Undo</button> : r > 0 && <button type="button" className="btn ghost sm" onClick={() => markRotated(p, [f.id, ...sib.map(x => x.id)])}>Mark rotated</button>}</td>
                 </tr>
               )
             })}
@@ -314,16 +314,16 @@ function Offboard({ p, d }: { p: Project; d: Derived }) {
               const ok = !!done[s.finding.id]
               return (
                 <li key={s.finding.id} className={ok ? 'done' : ''}>
-                  <label className="tick"><input type="checkbox" checked={ok} onChange={() => toggle(s.finding.id, [])} aria-label={`Rotated ${s.finding.title}`} /><span /></label>
+                  <label className="tick"><input type="checkbox" checked={ok} onChange={() => toggle(s.finding.id, s.also.map(a => a.id))} aria-label={`Rotated ${s.finding.title}${s.also.length ? ` and ${s.also.length} more` : ''}`} /><span /></label>
                   <div className="grow">
-                    <div className="row gap-sm wrap"><span className="step-n">{i + 1}</span><strong>{s.finding.title}</strong><span className="muted small">{s.finding.domain}</span><SevPill r={s.risk} />{s.finding.sso && <span className="flag info" title="This app commonly supports SAML/OIDC SSO, which removes the shared password entirely">SSO candidate</span>}</div>
+                    <div className="row gap-sm wrap"><span className="step-n">{i + 1}</span><strong>{s.finding.title}{s.also.length ? ` + ${s.also.length} more` : ''}</strong><span className="muted small">{s.finding.domain}</span><SevPill r={s.risk} />{s.finding.sso && <span className="flag info" title="This app commonly supports SAML/OIDC SSO, which removes the shared password entirely">SSO candidate</span>}</div>
                     <div className="small step-meta">
                       <span>Owner: <b>{s.owner}</b></span>
                       <span>Blast radius {s.blast}</span>
                       <span>{s.why.join(' · ')}</span>
                     </div>
                     <div className="small">Rotate the password{s.finding.tfa && !s.finding.totp ? ', turn on 2FA' : ''}{s.audience ? `, then share the new one with the ${s.audience} remaining ${s.audience === 1 ? 'user' : 'users'}` : ''}.</div>
-                    {s.also.length > 0 && <div className="also small">Same password on: {s.also.map(a => <span key={a.id} className={done[a.id] ? 'struck' : ''}>{a.title}</span>)} {s.also.some(a => !done[a.id]) && <button type="button" className="linkish small" onClick={() => toggle(s.finding.id, s.also.filter(a => !done[a.id] && !ok).map(a => a.id))}>{ok ? '' : 'Tick all together'}</button>}</div>}
+                    {s.also.length > 0 && <div className="also small">Rotate together, same password on: {s.also.map(a => <span key={a.id} className={done[a.id] ? 'struck' : ''}>{a.title}</span>)}</div>}
                   </div>
                   <button type="button" className="btn ghost sm" onClick={() => setGen(s.finding)}>Generate</button>
                 </li>

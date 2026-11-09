@@ -13,10 +13,11 @@ export default function Workspace() {
 
   // /app?sample=agency opens (or creates) the sample straight away.
   useEffect(() => {
-    const s = new URLSearchParams(location.search).get('sample')
+    const q = new URLSearchParams(location.search)
+    const s = q.get('sample'), tab = q.get('tab')?.replace(/[^a-z]/g, '')
     if (!s || list === null || busy || !SAMPLES.some(x => x.id === s)) return
     setBusy(s)
-    void createSampleProject(s).then(p => go(`/app/p/${p.id}`, { replace: true }))
+    void createSampleProject(s).then(p => go(`/app/p/${p.id}${tab ? '/' + tab : ''}`, { replace: true }))
   }, [list, busy])
 
   const openSample = async (id: string) => { setBusy(id); const p = await createSampleProject(id); go(`/app/p/${p.id}`) }

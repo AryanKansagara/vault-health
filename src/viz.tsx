@@ -59,18 +59,18 @@ interface Node { f: Finding; x: number; y: number; r: number; risk: number; sev:
  * Vaults are clusters around a circle; each item is a dot sized by risk. Lines join items that share a password
  * (solid) or a near-identical one (dashed). Rotating an item cuts its lines and turns it green.
  */
-export function BlastGraph({ fs, ctx, selected, onSelect, height = 420, healed }: { fs: Finding[]; ctx: Ctx; selected?: string | null; onSelect?: (id: string) => void; height?: number; healed?: Set<string> }) {
-  const W = 640, H = height
+export function BlastGraph({ fs, ctx, selected, onSelect, height = 420, width = 640, healed }: { fs: Finding[]; ctx: Ctx; selected?: string | null; onSelect?: (id: string) => void; height?: number; width?: number; healed?: Set<string> }) {
+  const W = width, H = height
   const layout = useMemo(() => {
     const vaults = [...new Set(fs.map(f => f.vault))]
-    const R = Math.min(W, H) / 2 - 70
+    const R = Math.min(W, H) / 2 - Math.min(W, H) / 6
     const nodes = new Map<string, Node>()
     const labels: { v: string; x: number; y: number; anchor: 'start' | 'end' | 'middle' }[] = []
     vaults.forEach((v, i) => {
       const a = (i / vaults.length) * Math.PI * 2 - Math.PI / 2
       const cx = W / 2 + Math.cos(a) * R * (vaults.length > 1 ? 1 : 0), cy = H / 2 + Math.sin(a) * R * (vaults.length > 1 ? 0.92 : 0)
       const items = fs.filter(f => f.vault === v)
-      const ring = Math.min(62, 14 + items.length * 4.2)
+      const ring = Math.min(W / 10, 14 + items.length * 4)
       items.forEach((f, j) => {
         const b = (j / items.length) * Math.PI * 2 + i
         const rr = items.length === 1 ? 0 : ring * (0.55 + 0.45 * ((j * 7) % 5) / 4)
@@ -78,7 +78,9 @@ export function BlastGraph({ fs, ctx, selected, onSelect, height = 420, healed }
         nodes.set(f.id, { f, x: cx + Math.cos(b) * rr, y: cy + Math.sin(b) * rr, r: 4 + rk / 14, risk: rk, sev: severity(rk) })
       })
       const lx = W / 2 + Math.cos(a) * (R + ring + 18), ly = H / 2 + Math.sin(a) * (R * 0.92 + ring + 14)
-      labels.push({ v, x: Math.max(8, Math.min(W - 8, lx)), y: Math.max(14, Math.min(H - 6, ly)), anchor: Math.abs(Math.cos(a)) < 0.3 ? 'middle' : Math.cos(a) > 0 ? 'start' : 'end' })
+      const anchor = Math.abs(Math.cos(a)) < 0.3 ? 'middle' as const : Math.cos(a) > 0 ? 'start' as const : 'end' as const
+      const room = v.length * 6.2
+      labels.push({ v, x: anchor === 'start' ? Math.min(lx, W - room) : anchor === 'end' ? Math.max(lx, room) : Math.max(room / 2, Math.min(W - room / 2, lx)), y: Math.max(14, Math.min(H - 6, ly)), anchor })
     })
     const edges: { a: Node; b: Node; near: boolean; key: string }[] = []
     const list = [...nodes.values()]
@@ -88,7 +90,7 @@ export function BlastGraph({ fs, ctx, selected, onSelect, height = 420, healed }
       else if (A.near && A.near === B.near) edges.push({ a: list[i], b: list[j], near: true, key: A.id + B.id })
     }
     return { nodes: list, edges, labels }
-  }, [fs, ctx, H])
+  }, [fs, ctx, H, W])
 
   const sel = selected ? layout.nodes.find(n => n.f.id === selected) : null
   return (

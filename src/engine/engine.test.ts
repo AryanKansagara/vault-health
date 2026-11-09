@@ -191,12 +191,12 @@ test('offboarding: reachable items ordered by blast radius with owners and sibli
   const fs = [finding({ id: 'social', title: 'Instagram', vault: 'Social', group: 'g' }), finding({ id: 'fb', title: 'Facebook', vault: 'Social', group: 'g' }), finding({ id: 'bank', title: 'Bank', vault: 'Finance' }), finding({ id: 'solo', title: 'Router', vault: 'Private' })]
   const access = parseAccess('person,vault,role\nJo,Social,member\nAl,Social,owner\nBe,Social,member\nJo,Finance,member\n').rows
   const steps = offboard('Jo', fs, access, context(fs, access, NOW), ['solo'])
-  assert.deepEqual(steps.map(s => s.finding.id).slice(0, 2).sort(), ['fb', 'social'])
+  assert.ok(['fb', 'social'].includes(steps[0].finding.id), 'the shared password comes first')
   assert.equal(steps[0].owner, 'Al')
   assert.equal(steps[0].audience, 2)
   assert.equal(steps[0].also.length, 1)
   assert.ok(steps.some(s => s.finding.id === 'solo' && s.owner === 'Unassigned'))
-  assert.equal(steps.length, 4)
+  assert.equal(steps.length, 3, 'reuse siblings collapse into one step')
 })
 
 test('access list: role detection and validation', () => {

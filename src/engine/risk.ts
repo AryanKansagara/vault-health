@@ -161,7 +161,15 @@ export function offboard(person: string, fs: Finding[], access: Access[], ctx: C
     ]
     return { finding: f, risk: r, audience, blast: Math.round(((1 + also.length) * 10 + Math.min(audience, 10) + r / 10) * 10) / 10, owner, also, why }
   })
-  return steps.sort((a, b) => b.blast - a.blast || b.risk - a.risk || a.finding.title.localeCompare(b.finding.title))
+  steps.sort((a, b) => b.blast - a.blast || b.risk - a.risk || a.finding.title.localeCompare(b.finding.title))
+  // One step per shared password: its siblings are rotated in the same sitting, so they do not get their own rows.
+  const seen = new Set<string>()
+  return steps.filter(s => {
+    if (seen.has(s.finding.id)) return false
+    seen.add(s.finding.id)
+    for (const a of s.also) seen.add(a.id)
+    return true
+  })
 }
 
 // ---------- Snapshots ----------
