@@ -1,4 +1,5 @@
 import { parseCsv } from './csv.ts'
+import { siteName } from './domain.ts'
 
 /** One parsed login. Holds the plaintext password, so it only ever lives in memory. */
 export interface RawItem {
@@ -49,7 +50,7 @@ const SYN: Record<Field, string[]> = {
   password: ['password', 'login_password', 'pass', 'secret'],
   totp: ['otpauth', 'totp', 'login_totp', 'otp', 'one-time password', '2fa', 'mfa'],
   vault: ['vault', 'collections', 'folder', 'grouping', 'group', 'collection', 'category'],
-  changed: ['timepasswordchanged', 'password_changed', 'last_changed', 'last changed', 'password last changed', 'modified', 'updated', 'updated_at', 'last_modified', 'lastmodified'],
+  changed: ['timepasswordchanged', 'password_changed', 'last_changed', 'last changed', 'password last changed', 'modified', 'updated', 'updated_at', 'last_modified', 'lastmodified', 'modified date'],
 }
 
 export function detectFormat(header: string[]): Format {
@@ -59,7 +60,11 @@ export function detectFormat(header: string[]): Format {
   if (has('url', 'password', 'extra', 'grouping')) return 'lastpass'
   if (has('timepasswordchanged') || has('formactionorigin', 'guid')) return 'firefox'
   if (has('title', 'password', 'otpauth') && (h.has('favorite') || h.has('archived') || h.has('tags'))) return '1password-csv'
+  // 1Password 7 "all fields" exports: Mac writes Type/Modified Date, Windows writes UUID/Scope/Autosubmit.
+  if (has('title', 'password', 'type', 'modified date') || has('uuid', 'title', 'password', 'scope')) return '1password-csv'
   if (has('title', 'url', 'username', 'password', 'otpauth')) return 'apple'
+  // Safari before macOS 12 wrote only these four columns.
+  if (has('title', 'url', 'username', 'password') && h.size === 4) return 'apple'
   if (has('name', 'url', 'username', 'password') && h.size <= 5) return 'chrome'
   return 'generic'
 }
@@ -95,13 +100,20 @@ export function parseExport(text: string, forced?: Format): ParseResult {
   }
   const items: RawItem[] = []
   const typeCol = format === 'bitwarden' ? lower.indexOf('type') : -1
+  // Non-login rows (secure notes, cards, identities) carry no password; skip them quietly instead of warning on each.
+  const kindCol = format === '1password-csv' ? lower.indexOf('type') : -1
+  const archivedCol = format === '1password-csv' ? lower.indexOf('archived') : -1
   for (const { cells, line } of rows.slice(1)) {
     const get = (f: Field) => (col[f] !== undefined ? cells[col[f]!] ?? '' : '').trim()
     if (cells.length < header.length - 1 && cells.length < 3) { issues.push({ line, level: 'warn', message: `Only ${cells.length} column(s); skipped.` }); continue }
     if (typeCol >= 0 && cells[typeCol] && cells[typeCol] !== 'login') continue
+    if (archivedCol >= 0 && /^true$/i.test(cells[archivedCol] ?? '')) continue
     const password = col.password !== undefined ? cells[col.password] ?? '' : ''
     const url = get('url')
-    const title = get('title') || url || get('username')
+    // Firefox stores its own sync keys as a "login" for chrome://FirefoxAccounts; it is not a site password.
+    if (/^(chrome|about|moz-extension|chrome-extension):/i.test(url)) continue
+    const title = get('title') || (url && siteName(url)) || get('username')
+    if (!password && kindCol >= 0 && !/^(login|password)$/i.test(cells[kindCol] ?? '')) continue
     if (!password) { issues.push({ line, level: 'warn', message: `“${title || 'Untitled'}” has no password; skipped.` }); continue }
     let vault = get('vault')
     let shared = false
@@ -118,6 +130,9 @@ export function parseExport(text: string, forced?: Format): ParseResult {
   return { format, items, issues, rows: rows.length - 1, mapping }
 }
 
+/** Section field ids that hold a reusable secret in 1Password's non-login categories (not PINs, CVVs or ID numbers). */
+const SECRET_FIELD = /^(password|admin_console_password|wireless_password|disk_password|pop_password|smtp_password|credential)$/
+
 /** Parses the export.data JSON inside a .1pux archive. */
 export function parse1pux(json: unknown): ParseResult {
   const items: RawItem[] = []
@@ -132,20 +147,36 @@ export function parse1pux(json: unknown): ParseResult {
       for (const it of (v.items ?? []) as Record<string, any>[]) {
         n++
         if (it.state === 'archived') continue
+        const fields: any[] = (it.details?.sections ?? []).flatMap((s: any) => (s.fields ?? []).map((f: any) => ({ ...f, section: s.title ?? '' })))
+        const str = (...ids: string[]) => ids.map(id => fields.find(f => f.id === id)?.value?.string).find(Boolean) ?? ''
+        const totp = fields.some(f => f.value && typeof f.value === 'object' && f.value.totp)
+        const title: string = it.overview?.title || 'Untitled'
+        const history: { time?: number }[] = it.details?.passwordHistory ?? []
+        // The newest history entry is when the current password was set; with no history it has not changed since the item was created.
+        const ts = Math.max(0, ...history.map(h => h.time ?? 0)) || it.createdAt || it.updatedAt
+        const changed = ts ? new Date(ts * 1000).toISOString().slice(0, 10) : null
         const loginFields: any[] = it.details?.loginFields ?? []
         const password = loginFields.find(f => f.designation === 'password')?.value ?? it.details?.password ?? ''
-        if (!password) continue
-        const username = loginFields.find(f => f.designation === 'username')?.value ?? ''
-        const totp = (it.details?.sections ?? []).some((s: any) => (s.fields ?? []).some((f: any) => f.value && typeof f.value === 'object' && 'totp' in f.value && f.value.totp))
-        const url = it.overview?.url ?? it.overview?.urls?.[0]?.url ?? ''
-        const ts = it.updatedAt as number | undefined
-        items.push({ line: n, title: it.overview?.title ?? url ?? 'Untitled', url, username, password, totp, vault, shared, changed: ts ? new Date(ts * 1000).toISOString().slice(0, 10) : null })
+        if (password) {
+          const url = it.overview?.url || it.overview?.urls?.[0]?.url || ''
+          const username = loginFields.find(f => f.designation === 'username')?.value ?? ''
+          items.push({ line: n, title: it.overview?.title || (url && siteName(url)) || 'Untitled', url, username, password, totp, vault, shared, changed })
+          continue
+        }
+        // Server, database, router, email and API credential items keep their secrets in section fields. They are exactly
+        // the shared credentials an offboarding has to rotate, so each one becomes its own item.
+        const secrets = fields.filter(f => SECRET_FIELD.test(f.id ?? '') && typeof f.value?.concealed === 'string' && f.value.concealed)
+        const url = str('url', 'admin_console_url', 'website', 'hostname', 'server', 'pop_server')
+        const username = str('username', 'pop_username', 'admin_console_username')
+        for (const f of secrets) {
+          const label = secrets.length > 1 ? ` (${[f.section, f.title || f.id].filter(Boolean).join(' ')})` : ''
+          items.push({ line: n, title: title + label, url, username, password: f.value.concealed, totp, vault, shared, changed })
+        }
       }
     }
   }
   if (!items.length) issues.push({ line: 0, level: 'error', message: 'No login items with passwords were found in the archive.' })
-  else issues.push({ line: 0, level: 'warn', message: '1PUX has no password-changed date; item “last edited” is used as the age.' })
-  return { format: '1password-1pux', items, issues, rows: n, mapping: { title: 'overview.title', url: 'overview.url', password: 'loginFields[password]', vault: 'vault name', changed: 'updatedAt' } }
+  return { format: '1password-1pux', items, issues, rows: n, mapping: { title: 'overview.title', url: 'overview.url', password: 'loginFields[password] or concealed password fields', vault: 'vault name', changed: 'passwordHistory, else createdAt' } }
 }
 
 /** Who can open which vault (or item). CSV columns: person (or email/user), vault, item (optional), role (optional: owner/manager/member). */

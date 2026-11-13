@@ -5,12 +5,12 @@ const MANAGERS: { id: string; name: string; file: string; steps: string[]; notes
   {
     id: '1password', name: '1Password', file: '.1pux (recommended) or .csv',
     steps: ['Open the 1Password desktop app (export is not available on 1Password.com or mobile).', 'Choose File › Export, then pick the account.', 'Enter your account password.', 'Choose 1PUX to keep vault names, or CSV. Then Export Data.'],
-    notes: ['1PUX keeps vault names and vault type, which is how shared vaults are detected. 1Password CSV has no vault column, so everything lands in one vault.', '1PUX has no “password changed” date; the item’s last-edited time is used for age.', 'In 1Password Business, an owner can restrict export. If the menu item is missing, ask an owner.', 'A 1PUX is a zip. It is unpacked in your browser.'],
+    notes: ['1PUX keeps vault names and vault type, which is how shared vaults are detected. 1Password CSV has no vault column, so everything lands in one vault.', '1PUX has no “password changed” field. Age comes from the newest password-history entry, or the date the item was created when the password was never changed. Editing a tag or note does not reset it.', 'Server, Database, Wireless Router, Email Account and API Credential items are included: each password field in them (console, SMTP, base station, Wi-Fi, credential) becomes its own row. PINs, card numbers and ID numbers are left out.', '1Password CSV skips archived items, like 1PUX. 1Password 7 CSV exports (Mac “all fields” and Windows) are recognized too; on Mac the Modified Date column is used as the age.', 'In 1Password Business, an owner can restrict export. If the menu item is missing, ask an owner.', 'A 1PUX is a zip. It is unpacked in your browser.'],
   },
   {
     id: 'bitwarden', name: 'Bitwarden', file: '.csv',
     steps: ['Personal vault: web vault › Tools › Export vault, format .csv, enter your master password.', 'Organization vault: Admin Console › your organization › Export vault, format .csv.'],
-    notes: ['Organization exports include a collections column; items in a collection are treated as shared.', 'The CSV includes login_totp, so “2FA not set” is accurate.', 'Bitwarden CSV has no password-changed date, so age is skipped. Encrypted JSON exports are not supported.'],
+    notes: ['Organization exports include a collections column; items in a collection are treated as shared.', 'The CSV includes login_totp, so “2FA not set” is accurate.', 'Bitwarden CSV has no password-changed date, so age is skipped. Encrypted JSON exports are not supported.', 'Items with several URIs list them comma-separated in login_uri; the first one names the site.'],
   },
   {
     id: 'lastpass', name: 'LastPass', file: '.csv',
@@ -20,16 +20,16 @@ const MANAGERS: { id: string; name: string; file: string; steps: string[]; notes
   {
     id: 'chrome', name: 'Chrome and Edge', file: '.csv',
     steps: ['Chrome: open chrome://password-manager/settings › Export passwords › Download file.', 'Edge: open edge://wallet/passwords (or Settings › Passwords) › ⋯ › Export passwords.'],
-    notes: ['Browser exports have no vault, TOTP or date columns. Everything is one “Browser” vault, age is skipped and 2FA can only be flagged as available.'],
+    notes: ['Browser exports have no vault, TOTP or date columns. Everything is one “Browser” vault, age is skipped and 2FA can only be flagged as available.', 'Android app logins (android://…@com.example.app) are named after the app package and matched to its domain (com.example → example.com).'],
   },
   {
     id: 'firefox', name: 'Firefox', file: '.csv',
     steps: ['Open about:logins.', 'Click ⋯ (top right) › Export passwords, confirm, and save.'],
-    notes: ['Firefox is the only browser that exports timePasswordChanged, so age checks work.'],
+    notes: ['Firefox is the only browser that exports timePasswordChanged, so age checks work.', 'The chrome://FirefoxAccounts row holds Firefox Sync keys, not a site password, and is skipped.'],
   },
   {
     id: 'apple', name: 'Apple Passwords', file: '.csv',
-    steps: ['macOS 15 or later: open the Passwords app › File › Export All Passwords to File.', 'macOS 14: Safari › Settings › Passwords, then File › Export › Passwords.'],
+    steps: ['macOS 15 or later: open the Passwords app › File › Export All Passwords to File.', 'macOS 14: Safari › Settings › Passwords, then File › Export › Passwords. Older Safari exports with only Title, Url, Username and Password columns also work.'],
     notes: ['The OTPAuth column marks items with a saved verification code.', 'No vault or date columns. Shared groups are not included in the export.'],
   },
 ]
@@ -102,8 +102,9 @@ export default function Docs() {
         <h2>Checks and data sources</h2>
         <ul className="notes">
           <li><b>Breaches</b>: Have I Been Pwned Pwned Passwords range API (free, no key). Only the first 5 hex characters of each password’s SHA-1 are sent, with the <code>Add-Padding</code> header. See <Link href="/security">Security</Link>.</li>
-          <li><b>2FA support</b>: the public 2fa.directory dataset (<code>api.2fa.directory/v3/totp.json</code>), matched by domain and parent domains. If it cannot be reached, a built-in list of about 100 common services is used and the import is labeled “bundled”.</li>
+          <li><b>2FA support</b>: the public 2fa.directory dataset (<code>api.2fa.directory/v3/totp.json</code>), matched by registrable domain, so a service listed as <code>mail.google.com</code> or <code>id.atlassian.com</code> covers every login on that domain. Checked on 13 November 2026: 1,294 services (dataset last modified 24 October 2026). If it cannot be reached, a built-in list of about 70 common services, verified against that dataset, is used and the import is labeled “bundled”. Services with only SMS or their own app codes (Apple, most US banks) are not in the TOTP list and are not flagged.</li>
           <li><b>Strength</b>: zxcvbn-ts with its common-password and keyboard dictionaries, loaded only when you import. Synthetic samples use a smaller built-in estimator.</li>
+          <li><b>Import formats</b> are tested against the public sample exports in Bitwarden’s importer test suite (<code>github.com/bitwarden/clients</code>, <code>libs/importer/src/importers/spec-data</code>): Chrome (including Android app logins and the newer note column), Firefox (including the Sync-keys row), Safari old and new, 1Password 7 Mac and Windows CSV, and 1PUX logins, passwords, servers, databases, routers, email and API credentials.</li>
           <li><b>SSO candidates</b>: a built-in list of business apps that commonly offer SAML or OIDC SSO, often on a higher plan.</li>
         </ul>
       </article>
