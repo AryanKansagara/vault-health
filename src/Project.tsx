@@ -129,7 +129,7 @@ function Overview({ p, d }: { p: Project; d: Derived }) {
       </div>
       <div className="overview-main">
         <div className="panel">
-          <div className="row between"><h3>Blast radius</h3><span className="muted small">Lines join items that share a password; dashed lines are near-identical.</span></div>
+          <div className="row between wrap"><h3>Blast radius</h3><span className="muted small">Lines join items that share a password; dashed lines are near-identical.</span></div>
           <BlastGraph fs={d.eff} ctx={d.ctx} selected={sel} onSelect={setSel} healed={healed} />
           {selF && <ItemDetail p={p} f={selF} d={d} onClose={() => setSel(null)} />}
         </div>
@@ -166,7 +166,8 @@ const FILTERS: Record<string, [string, (f: Finding, d: Derived) => boolean]> = {
   all: ['All', () => true],
   breached: ['Breached', f => !!f.breached],
   reused: ['Reused', (f, d) => !!f.group && (d.ctx.groupSize.get(f.group) ?? 0) > 1],
-  near: ['Near-reused', (f, d) => !!f.near && (d.ctx.nearSize.get(f.near) ?? 0) > 1],
+  // Same rule as the overview count: an item that is already exactly reused is counted under Reused only.
+  near: ['Near-reused', (f, d) => !FILTERS.reused[1](f, d) && !!f.near && (d.ctx.nearSize.get(f.near) ?? 0) > 1],
   weak: ['Weak', f => f.strength <= 1],
   old: ['Old', (f, d) => (ageDays(f, d.ctx.now) ?? 0) > 365],
   no2fa: ['2FA not set', f => f.tfa && !f.totp],

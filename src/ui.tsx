@@ -124,7 +124,8 @@ export function CopyButton({ text, label = 'Copy', className = '' }: { text: str
 }
 
 export function download(name: string, content: string | Blob, type = 'text/csv') {
-  const blob = typeof content === 'string' ? new Blob([content], { type }) : content
+  // Excel reads a CSV without a byte-order mark as Windows-1252, which garbles names like O’Connor.
+  const blob = typeof content === 'string' ? new Blob([type === 'text/csv' ? '\ufeff' + content : content], { type: type === 'text/csv' ? 'text/csv;charset=utf-8' : type }) : content
   const a = document.createElement('a')
   a.href = URL.createObjectURL(blob)
   a.download = name
@@ -236,7 +237,7 @@ function AccountMenu() {
               <div><div className="muted small">Signed in as</div><strong className="break">{s.user.email}</strong></div>
               <div className="row gap-sm"><SyncPill />{s.error && <span className="error small">{s.error}</span>}</div>
               <button type="button" className="btn ghost sm block" disabled={busy} onClick={() => void run(syncNow)}>Sync now</button>
-              <button type="button" className="btn ghost sm block" onClick={() => void run(async () => download(`vault-health-export-${new Date().toISOString().slice(0, 10)}.json`, await exportAll()))}>Export all my data (JSON)</button>
+              <button type="button" className="btn ghost sm block" onClick={() => void run(async () => download(`vault-health-export-${new Date().toISOString().slice(0, 10)}.json`, await exportAll(), 'application/json'))}>Export all my data (JSON)</button>
               <button type="button" className="btn ghost sm block" onClick={() => void run(signOut, 'Signed out. Your projects stay on this device.')}>Sign out</button>
               <hr />
               <button type="button" className="btn danger-ghost sm block" disabled={busy} onClick={async () => { if (await ask('Delete cloud data?', 'Removes every Vault Health project and snapshot from the cloud. Copies on this device are kept.', 'Delete cloud data')) void run(deleteCloudData, 'Cloud data deleted.') }}>Delete my cloud data</button>

@@ -151,6 +151,7 @@ export function ImportPanel({ p }: { p: Project }) {
       {p.imports.length > 0 && (
         <div className="panel">
           <h3>Import history</h3>
+          <div style={{ overflowX: 'auto' }}>
           <table className="table compact">
             <thead><tr><th>When</th><th>File</th><th>Format</th><th className="num">Items</th><th className="num">Warnings</th><th>Checks</th></tr></thead>
             <tbody>{p.imports.map(i => (
@@ -158,6 +159,7 @@ export function ImportPanel({ p }: { p: Project }) {
                 <td className="small muted">{i.kind === 'vault' ? `breach: ${i.breach}, 2FA: ${i.tfa}, strength: ${i.strength}` : '—'}</td></tr>
             ))}</tbody>
           </table>
+          </div>
         </div>
       )}
     </div>

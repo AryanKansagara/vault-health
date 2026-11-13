@@ -34,7 +34,7 @@ export default function Settings() {
         <h2>Your data</h2>
         <p>Findings live in this browser (IndexedDB). {sync.user ? <>Signed in as <b>{sync.user.email}</b>: findings, plans and snapshots sync to your account.</> : 'Sign in from the account menu (top right) to sync across devices. It is optional.'} Passwords are never stored either way.</p>
         <div className="row gap wrap">
-          <button type="button" className="btn ghost" onClick={async () => download(`vault-health-export-${new Date().toISOString().slice(0, 10)}.json`, await exportAll())}>Export all my data (JSON)</button>
+          <button type="button" className="btn ghost" onClick={async () => download(`vault-health-export-${new Date().toISOString().slice(0, 10)}.json`, await exportAll(), 'application/json')}>Export all my data (JSON)</button>
           <button type="button" className="btn danger-ghost" onClick={async () => {
             const list = getProjects()
             if (!list.length) { toast('Nothing to delete'); return }
