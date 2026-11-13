@@ -11,11 +11,18 @@ Shared logins pile up in password managers, and nobody can say which ones a depa
 ## What it does
 
 - **Import** CSV exports from 1Password (CSV or .1pux), Bitwarden, LastPass, Chrome/Edge, Firefox, Apple Passwords or any CSV. Format detection, column mapping and a validation report with line numbers.
+- Importers are tested against the layouts of the public sample exports in Bitwarden's importer test suite (Chrome incl. Android app logins, Firefox, Safari old and new, 1Password 7 Mac/Windows CSV, 1Password 8 CSV, 1PUX incl. server, database, router, email and API credential items).
 - **Analyze** strength (zxcvbn), exact reuse and near-reuse (`Summer2024!` vs `Summer2025!`), breached passwords (Have I Been Pwned, k-anonymity with padding), old passwords, sites with 2FA support but no TOTP saved (2fa.directory), and shared-vault exposure. Per-item risk with published weights and an overall health score.
 - **Offboard**: pick the person leaving (from a vault access list, or tag items by hand) to get a rotation checklist ordered by blast radius, with owners, the items sharing each password and SSO candidates. Progress is tracked across sessions.
 - **Act**: prioritized fix plan CSV, printable report for leadership or an insurer, policy attestation, and a strong password generator (`crypto.getRandomValues`, never stored).
 - **History**: a snapshot per import, a health trend and a compare view (items fixed, items worse).
 - Workspaces in IndexedDB, optional sign-in to sync across devices (Supabase), light and dark themes, three synthetic sample vaults.
+
+## Known gaps
+
+- Bitwarden, LastPass, Chrome and Apple exports carry no password-changed date, so age checks only run for Firefox, 1PUX, 1Password 7 Mac CSV and generic CSVs with a date column.
+- Encrypted exports (Bitwarden encrypted JSON, 1Password 1PIF) are not read.
+- The SSO candidate list is a hand-kept list of common business apps, not a live dataset.
 
 ## Security model
 
