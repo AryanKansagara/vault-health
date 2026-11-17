@@ -283,7 +283,7 @@ export function Footer() {
       <div className="footer-inner">
         <div className="footer-brand"><Monogram /> <strong>Vault Health</strong></div>
         <nav className="footer-nav" aria-label="Footer"><Link href="/app">Vaults</Link><Link href="/docs">Docs</Link><Link href="/security">Security</Link><Link href="/settings">Settings</Link></nav>
-        <p>Built by Aryan Kansagara. Independent project, not affiliated with 1Password.</p>
+        <p>Built by Aryan Kansagara.</p>
         <p className="muted small">Sample vaults are synthetic. Exports are parsed in your browser; passwords never leave this tab and are never stored.</p>
       </div>
     </footer>
