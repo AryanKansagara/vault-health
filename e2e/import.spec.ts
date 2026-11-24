@@ -53,3 +53,18 @@ test('"Clear from memory" drops the imported file and keeps the findings', async
   await expect(page.locator('.held')).toHaveCount(0)
   expect(await healthScore(page)).toBe(score)
 })
+
+test('unrelated passwords are not falsely grouped as near-reused', async ({ page }) => {
+  await newVault(page)
+  const unrelatedCsv = 'title,url,username,password\n' +
+    'A,https://a.example,u1,x7!k9?m2&p\n' +
+    'B,https://b.example,u2,x1%k8#m4*p\n' +
+    'C,https://c.example,u3,7a91-2b48-6c30-5d82\n' +
+    'D,https://d.example,u4,9a01-3b77-8c22-4d99\n' +
+    'E,https://e.example,u5,test-404-err\n' +
+    'F,https://f.example,u6,test-aoa-err\n' +
+    'G,https://g.example,u7,pass-1-word\n' +
+    'H,https://h.example,u8,password-2024\n'
+  await importExport(page, file('unrelated.csv', unrelatedCsv))
+  expect(await stat(page, 'Near-reused')).toBe(0)
+})
