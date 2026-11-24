@@ -22,12 +22,13 @@ test('#3 a CSV cut off in the middle of its last row is flagged', async ({ page 
 })
 
 test('#4 a cut-off JSON export gets a message about the file, not a JSON.parse error', async ({ page }) => {
-  test.fail()
   await newVault(page)
   await chooseExport(page, file('cut.json', '{"accounts":[{"vaults":[{"items":[{"overview":{"title":"x', 'application/json'))
   await expect(page.getByRole('alert')).toBeVisible()
+  await expect(page.getByRole('alert')).toContainText(/malformed or cut-off JSON/)
   await expect(page.getByRole('alert')).not.toContainText(/JSON at position|Unexpected end of JSON/)
   await chooseExport(page, file('cut.1pux', zip('export.data', '{"accounts":[{"vaults":[{"items":[{"overview":{"title":"x'), 'application/zip'))
+  await expect(page.getByRole('alert')).toContainText(/Could not read export\.data/)
   await expect(page.getByRole('alert')).not.toContainText(/JSON at position|Unexpected end of JSON/)
 })
 

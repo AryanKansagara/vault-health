@@ -60,3 +60,20 @@ test('discarding a validated export leaves nothing behind', async ({ page }) => 
   await expect(page.locator('.project-card')).toContainText('No import yet')
   expectNoSecrets(await dumpStorage(page), 'browser storage')
 })
+
+test('multi-record 1PIF / NDJSON, malformed JSON arrays and corrupt deflated 1PUX show actionable errors', async ({ page }) => {
+  await newVault(page)
+  await chooseExport(page, file('two-records.txt', '{"uuid":"a"}\n{"uuid":"b"}\n', 'text/plain'))
+  await expect(page.getByRole('alert')).toContainText(/1pif \/ multi-record JSON/)
+
+  await chooseExport(page, file('cut-array.json', '[{"title":"x"', 'application/json'))
+  await expect(page.getByRole('alert')).toContainText(/malformed or cut-off JSON/)
+
+  const validZip = zip('export.data', '{"accounts":[]}')
+  // Corrupt the deflate stream header (BTYPE=3 reserved) right after local header (30 + 11 = 41).
+  const corrupted = Buffer.from(validZip)
+  corrupted[41] = 0x06
+  corrupted[42] = 0xff
+  await chooseExport(page, file('corrupt.1pux', corrupted, 'application/zip'))
+  await expect(page.getByRole('alert')).toContainText(/Could not decompress|truncated or damaged/)
+})
