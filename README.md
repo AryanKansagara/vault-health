@@ -38,3 +38,16 @@ npm run build
 ```
 
 Copy `.env.example` to `.env` and fill in the Supabase URL and publishable key to enable sync. Everything else works without it.
+
+## Tests and CI
+
+```
+npm test                      # engine unit tests (node:test)
+npx playwright install chromium   # once
+npm run test:e2e              # builds, then runs the browser tests against `vite preview`
+E2E_PORT=4800 npm run test:e2e    # use another port (default 4173)
+```
+
+The Playwright (Chromium) suite in `e2e/` drives the production build signed out. Every credential in it is made up. Network access is closed: the page can only reach the preview server, the Have I Been Pwned and 2fa.directory calls are answered by stubs, and every other host (fonts, Supabase) is blocked, so no test can reach a real service. Each test also fails on an uncaught page error or a request to an unexpected host. It covers the sample vaults, CSV and 1PUX imports, what is stored, downloaded and sent after an import (no password or username anywhere), failed breach lookups, offboarding, persistence across reloads, and encrypted, empty and truncated exports. `e2e/known-bugs.spec.ts` holds tests for filed bugs, marked `test.fail()` until they are fixed.
+
+GitHub Actions (`.github/workflows/ci.yml`, job `test`) runs install, build, unit tests and the E2E suite on every pull request and on pushes to `main`. `vercel.json` turns Git deployments off for every branch except `main`, so pull requests do not create Vercel previews; CI is the gate.
