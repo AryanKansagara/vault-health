@@ -1,5 +1,12 @@
 const TWO_LEVEL = new Set(['co.uk', 'org.uk', 'ac.uk', 'gov.uk', 'com.au', 'net.au', 'org.au', 'co.nz', 'co.jp', 'com.br', 'co.in', 'com.mx', 'co.za', 'com.sg', 'com.cn'])
 
+function isNetworkUrl(s: string): boolean {
+  if (/^[a-z][a-z0-9+.-]*:(?!\/\/|\d+(?:[/?#]|$))/i.test(s)) return false
+  const hasScheme = /^[a-z][a-z0-9+.-]*:\/\//i.test(s)
+  if (!hasScheme && s.includes('@')) return false
+  return hasScheme || s.includes('.') || /^localhost(?:[:/?#]|$)/i.test(s)
+}
+
 /** Registrable domain of a URL-ish string ("https://app.www.example.co.uk/x" -> "example.co.uk"). Empty when there is none. */
 export function domainOf(raw: string): string {
   // Bitwarden joins several URIs with a comma; the first one names the site.
@@ -7,6 +14,7 @@ export function domainOf(raw: string): string {
   if (!s) return ''
   const app = androidPackage(s)
   if (app !== null) return app.split('.').slice(0, 2).reverse().join('.')
+  if (!isNetworkUrl(s)) return ''
   let host = ''
   try { host = new URL(/^[a-z][a-z0-9+.-]*:\/\//i.test(s) ? s : `https://${s}`).hostname } catch { return '' }
   host = host.toLowerCase().replace(/\.$/, '')
@@ -18,16 +26,23 @@ export function domainOf(raw: string): string {
 
 /** Package name of an Android app login (Chrome: android://<hash>@com.example.app/, Bitwarden: androidapp://com.example.app), else null. */
 export function androidPackage(url: string): string | null {
-  const m = /^android(?:app)?:\/\/(?:[^@/]*@)?([a-z0-9_.]+)/i.exec(url.trim())
+  const m = /^android(?:app)?:\/\/(?:[^@/]*@)?([a-z0-9_]+(?:\.[a-z0-9_]+)+)/i.exec(url.trim())
   return m ? m[1].toLowerCase() : null
 }
 
 /** A readable name for an item that has no title: the app package or the host without "www.". */
 export function siteName(url: string): string {
   const s = url.trim().split(',')[0]
+  if (!s) return ''
   const app = androidPackage(s)
   if (app) return app
-  try { return new URL(/^[a-z][a-z0-9+.-]*:\/\//i.test(s) ? s : `https://${s}`).hostname.replace(/^www\./, '') || s } catch { return s }
+  if (!isNetworkUrl(s)) return ''
+  const hasScheme = /^[a-z][a-z0-9+.-]*:\/\//i.test(s)
+  try {
+    const u = new URL(hasScheme ? s : `https://${s}`)
+    if (hasScheme && u.protocol !== 'http:' && u.protocol !== 'https:' && u.protocol !== 'ftp:') return ''
+    return u.hostname.replace(/^www\./, '')
+  } catch { return '' }
 }
 
 /** Apps that commonly offer SAML/OIDC single sign-on (often on a paid tier). A rotation step on one of these is a chance to move it behind SSO instead. */
