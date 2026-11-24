@@ -32,12 +32,13 @@ test('#4 a cut-off JSON export gets a message about the file, not a JSON.parse e
 })
 
 test('#5 the vault list does not say "0 breached" after the breach check failed', async ({ page, net }) => {
-  test.fail()
   net.breach = 'http500'
   await newVault(page)
   await importExport(page, file('repro.csv', 'title,url,username,password\nRouter,http://router.example,zq.admin,Zq-Fixture-Breached-0001\nWiki,https://wiki.example,zq.wiki,abc123\n'))
   await page.goto('/app')
   await expect(page.locator('.project-card')).not.toContainText('0 breached')
+  await expect(page.locator('.project-card')).not.toContainText('Healthy')
+  await expect(page.locator('.project-card')).toContainText('breach check not run')
 })
 
 test('#6 near-identical passwords are grouped when the changing digits are in the middle', async ({ page }) => {
