@@ -58,6 +58,50 @@ test('validation report: missing password column is an error with the columns se
   assert.deepEqual([warn.issues[0].line, warn.issues[0].level], [2, 'warn'])
 })
 
+test('csv truncation: rows cut mid-field or mid-quote are skipped and warned, while valid short rows and missing final newlines import cleanly', () => {
+  // Cut in the 5th column (password) of a 7-column CSV without a final newline.
+  const midPw = parseExport(
+    'vault,title,url,username,password,totp,last_changed\n' +
+    'Ops,A,https://a.example,zq.a,Zq-Full-Password-1,,2026-01-01\n' +
+    'Ops,B,https://b.example,zq.b,Zq-Truncated-Pass',
+  )
+  assert.deepEqual(midPw.items.map(i => i.password), ['Zq-Full-Password-1'])
+  assert.equal(midPw.issues.length, 1)
+  assert.equal(midPw.issues[0].line, 3)
+  assert.equal(midPw.issues[0].level, 'warn')
+  assert.match(midPw.issues[0].message, /5 of 7 columns/)
+
+  // Cut inside a quoted field (including when password was already closed or inside password quote).
+  const midQuote = parseExport(
+    'vault,title,url,username,password,totp,last_changed\n' +
+    'Ops,A,https://a.example,zq.a,Zq-Full-Password-1,,2026-01-01\n' +
+    'Ops,B,https://b.example,zq.b,"Zq-Truncated-Quoted',
+  )
+  assert.deepEqual(midQuote.items.map(i => i.password), ['Zq-Full-Password-1'])
+  assert.equal(midQuote.issues.length, 1)
+  assert.match(midQuote.issues[0].message, /Unterminated quoted field/)
+
+  // Valid export with no final newline and complete columns imports all rows cleanly.
+  const noEol = parseExport(
+    'vault,title,url,username,password,totp,last_changed\n' +
+    'Ops,A,https://a.example,zq.a,Zq-Full-1,,2026-01-01\n' +
+    'Ops,B,https://b.example,zq.b,Zq-Full-2,,2026-01-01',
+  )
+  assert.equal(noEol.items.length, 2)
+  assert.deepEqual(noEol.issues, [])
+
+  // Valid export with short trailing rows (terminated by newline, or blank trailing rows, or trailing empty header comma) keeps importing.
+  const shortTrailing = parseExport(
+    'vault,title,url,username,password,totp,last_changed,\n' +
+    'Ops,A,https://a.example,zq.a,Zq-Full-1,,2026-01-01,\n' +
+    'Ops,B,https://b.example,zq.b,Zq-Full-2\n' +
+    '   \n' +
+    ',,\n',
+  )
+  assert.deepEqual(shortTrailing.items.map(i => i.title), ['A', 'B'])
+  assert.deepEqual(shortTrailing.issues, [])
+})
+
 test('1PUX: vault types, TOTP fields and archived items', () => {
   const r = parse1pux({ accounts: [{ vaults: [
     { attrs: { name: 'Private', type: 'P' }, items: [{ state: 'active', updatedAt: 1609459200, overview: { title: 'Mine', url: 'https://a.com' }, details: { loginFields: [{ designation: 'password', value: 'p1' }], sections: [{ fields: [{ value: { totp: 'otpauth://x' } }] }] } }] },

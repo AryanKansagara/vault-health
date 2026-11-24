@@ -47,7 +47,7 @@ test('a CSV cut off mid-file imports only the complete rows and says which row w
   await chooseExport(page, file('cut.csv', full.slice(0, full.indexOf('Fixture Router') + 40)))
   await expect(page.getByText('Ready', { exact: true })).toBeVisible()
   await expect(page.getByText('Detected: Generic CSV · 4 rows · 3 logins usable')).toBeVisible()
-  await expect(page.getByText(/“Fixture Router” has no password; skipped\./)).toBeVisible()
+  await expect(page.getByText(/line 5.*Has 3 of 7 columns; skipped/i)).toBeVisible()
   await expect(page.getByRole('button', { name: 'Analyze 3 logins' })).toBeEnabled()
 })
 

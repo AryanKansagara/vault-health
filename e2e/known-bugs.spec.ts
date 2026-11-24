@@ -13,12 +13,18 @@ test('#2 a username is not stored as the title of an untitled item', async ({ pa
   expect(stored).not.toContain('zq.other@fixture.example')
 })
 
-test('#3 a CSV cut off in the middle of its last row is flagged', async ({ page }) => {
-  test.fail()
+test('#3 a CSV cut off in the middle of its last row is flagged', async ({ page, net }) => {
   await newVault(page)
   await chooseExport(page, file('truncated.csv', 'vault,title,url,username,password,totp,last_changed\nOps,A,https://a.example,zq.a,Zq-Full-Password-1,,2026-01-01\nOps,B,https://b.example,zq.b,Zq-Truncated-Pass'))
   await expect(page.getByText('Ready', { exact: true })).toBeVisible()
   await expect(page.locator('.validation .issues li')).toHaveCount(1)
+  await expect(page.getByRole('button', { name: 'Analyze 1 login' })).toBeEnabled()
+  await page.getByRole('button', { name: 'Analyze 1 login' }).click()
+  await page.waitForURL(/\/overview$/)
+  const hibp = net.requests.filter(r => new URL(r.url).hostname === 'api.pwnedpasswords.com').map(r => r.url)
+  const { createHash } = await import('node:crypto')
+  const truncPrefix = createHash('sha1').update('Zq-Truncated-Pass').digest('hex').toUpperCase().slice(0, 5)
+  expect(hibp.some(u => u.endsWith(`/range/${truncPrefix}`))).toBe(false)
 })
 
 test('#4 a cut-off JSON export gets a message about the file, not a JSON.parse error', async ({ page }) => {
