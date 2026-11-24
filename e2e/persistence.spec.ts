@@ -22,8 +22,14 @@ test('an imported vault, its snapshot and a rotation mark are kept after a reloa
   await expect(page.getByText('Snapshot saved')).toBeVisible()
   await page.getByRole('button', { name: 'Rotated' }).first().click()
   await expect(page.getByText(/Marked \d+ items? as rotated/)).toBeVisible()
-  const after = await healthScore(page)
-  expect(after).toBeGreaterThan(score)
+  // The toast can appear before the new score is saved and drawn, so wait for a higher score that has stopped changing.
+  let after = score
+  await expect.poll(async () => {
+    const first = await healthScore(page)
+    await page.waitForTimeout(250)
+    after = await healthScore(page)
+    return after > score && after === first
+  }).toBe(true)
 
   await page.reload()
   await page.waitForURL(`**/app/p/${id}/overview`)
