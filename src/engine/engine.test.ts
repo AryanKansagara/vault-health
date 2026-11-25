@@ -2,7 +2,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { parseCsv, toCsv } from './csv.ts'
 import { domainOf, supportsTfa, tfaDomains, TFA_FALLBACK, isSso } from './domain.ts'
-import { detectFormat, parse1pux, parseAccess, parseExport, type RawItem } from './formats.ts'
+import { detectFormat, parse1pux, parseAccess, parseExport, parseJsonExport, type RawItem } from './formats.ts'
 import { analyze, parseRange, quickScore, sha1, skeleton, type Finding } from './analyze.ts'
 import { applyFixes, breachLabel, compare, context, fixPlanCsv, offboard, reasons, risk, severity, snapshot, summarize, WEIGHTS } from './risk.ts'
 import { entropyBits, generate, SETS } from './password.ts'
@@ -83,6 +83,25 @@ test('unzip: reads a stored entry out of a zip archive', async () => {
   assert.equal(await readZipEntry(zip.buffer, 'missing'), null)
 })
 
+test('json and truncated zip errors give clear file-level messages', async () => {
+  assert.throws(() => parseJsonExport('{"accounts":[{"vaults":[{"items":[{"overview":{"title":"x', 'json'), /malformed or cut-off JSON/)
+  assert.throws(() => parseJsonExport('{"accounts":[{"vaults":', '1pux'), /Could not read export\.data/)
+  assert.throws(() => parseJsonExport('[{"a":1', 'json'), /malformed or cut-off JSON/)
+  assert.throws(() => parseJsonExport('{"a":1}\n{"b":2}\n'), /1pif \/ multi-record JSON/)
+  assert.throws(() => parseJsonExport('{"a":1}\n***56422544-3456-4890-9012-123456789012***\n{"b":2}\n'), /1pif \/ multi-record JSON/)
+  assert.throws(() => parseJsonExport('{"items":[]}'), /JSON exports are not supported yet/)
+  assert.equal(parseJsonExport('{"accounts":[]}', '1pux').format, '1password-1pux')
+
+  const name = new TextEncoder().encode('export.data')
+  const cenOffset = 10
+  const buf = new Uint8Array(cenOffset + 46 + name.length + 22), v = new DataView(buf.buffer)
+  v.setUint32(cenOffset, 0x02014b50, true); v.setUint32(cenOffset + 20, 999, true); v.setUint16(cenOffset + 28, name.length, true); v.setUint32(cenOffset + 42, 0, true)
+  buf.set(name, cenOffset + 46)
+  const eocd = cenOffset + 46 + name.length
+  v.setUint32(eocd, 0x06054b50, true); v.setUint16(eocd + 10, 1, true); v.setUint32(eocd + 12, 46 + name.length, true); v.setUint32(eocd + 16, cenOffset, true)
+  await assert.rejects(() => readZipEntry(buf.buffer, 'export.data'), /truncated or damaged/)
+})
+
 test('domains: registrable domain, IPs, two-level TLDs, junk', () => {
   assert.equal(domainOf('https://login.mailchimp.com/x?y'), 'mailchimp.com')
   assert.equal(domainOf('www.example.co.uk'), 'example.co.uk')
@@ -132,6 +151,56 @@ test('analyze: exact and near reuse groups, stable ids, no plaintext in output',
   const json = JSON.stringify(fs)
   for (const it of items) assert.ok(!json.includes(it.password), 'no password in findings')
   assert.ok(!json.includes('jo.user@corp.example'), 'no username in findings')
+})
+
+test('privacy: untitled items, secret-bearing titles/URLs/headers/dates and 1PUX never leak usernames or passwords', async () => {
+  const csvRes = parseExport(
+    'vault,title,url,username,password,last_changed\n' +
+    ',, ,zq.u1@corp.example,Zq-Pw-One-1111,bad-date\n' +
+    'zq.u2@corp.example,zq.u2@corp.example,mailto:zq.u2@corp.example,zq.u2@corp.example,Zq-Pw-Two-2222,zq.u2@corp.example\n' +
+    ',example.com (zq.u3@corp.example),https://example.com,zq.u3@corp.example,Zq-Pw-Three-3333,2026-01-01\n' +
+    ',Zq-Pw-Four-4444,https://ok.example,zq.u4@corp.example,Zq-Pw-Four-4444,\n' +
+    ',,zq.u5@corp.example,zq.u5@corp.example,,\n',
+  )
+  assert.deepEqual(csvRes.items.map(i => [i.title, i.vault]), [
+    ['Untitled', 'Private'],
+    ['Untitled', 'Private'],
+    ['example.com', 'Private'],
+    ['ok.example', 'Private'],
+  ])
+  const allMsgs = csvRes.issues.map(i => i.message).join('\n')
+  for (const s of ['zq.u1@corp.example', 'zq.u2@corp.example', 'zq.u5@corp.example', 'Zq-Pw-Two-2222']) {
+    assert.ok(!allMsgs.includes(s), `issue message leaked ${s}`)
+  }
+  const headerless = parseExport('https://a.example,zq.header@corp.example,Zq-Header-Pw-999\n')
+  assert.equal(headerless.issues[0].level, 'error')
+  assert.ok(!headerless.issues[0].message.includes('zq.header@corp.example'))
+  assert.ok(!headerless.issues[0].message.includes('Zq-Header-Pw-999'))
+  const headerless2 = parseExport('alice_admin,ZqSecret1234,Ops\n')
+  assert.equal(headerless2.issues[0].level, 'error')
+  assert.ok(!headerless2.issues[0].message.includes('alice_admin'))
+  assert.ok(!headerless2.issues[0].message.includes('ZqSecret1234'))
+
+  const puxRes = parse1pux({ accounts: [{ vaults: [{ attrs: { name: 'zq.pux@corp.example', type: 'P' }, items: [
+    { overview: { title: 'zq.pux@corp.example', url: 'mailto:zq.pux@corp.example' }, details: { loginFields: [{ designation: 'username', value: 'zq.pux@corp.example' }, { designation: 'password', value: 'Zq-Pux-Pw-1234' }] } },
+  ] }] }] })
+  assert.equal(puxRes.items[0].title, 'Untitled')
+  assert.equal(puxRes.items[0].vault, 'Vault')
+
+  const badAccess = parseAccess('vault,title,url,username,password\nOps,Site,https://site.example,zq.acc@corp.example,Zq-Acc-Pw-1234\n')
+  assert.equal(badAccess.rows.length, 0)
+  assert.equal(badAccess.issues[0].level, 'error')
+
+  const fs = await analyze([
+    item({ title: 'zq.direct@corp.example', url: 'zq.direct@corp.example', vault: 'Zq-Direct-Pw-7777', username: 'zq.direct@corp.example', password: 'Zq-Direct-Pw-7777' }),
+  ])
+  const snap = snapshot(fs, context(fs, [], NOW), 's1', 'Test')
+  const dump = JSON.stringify({ fs, snap })
+  assert.ok(!dump.includes('zq.direct@corp.example'))
+  assert.ok(!dump.includes('Zq-Direct-Pw-7777'))
+  assert.equal(fs[0].title, 'Untitled')
+  assert.equal(fs[0].domain, '')
+  assert.equal(fs[0].vault, 'Private')
 })
 
 test('analyze: breach map, 2FA availability, duplicate item ids', async () => {
