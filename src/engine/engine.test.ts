@@ -153,6 +153,56 @@ test('analyze: exact and near reuse groups, stable ids, no plaintext in output',
   assert.ok(!json.includes('jo.user@corp.example'), 'no username in findings')
 })
 
+test('privacy: untitled items, secret-bearing titles/URLs/headers/dates and 1PUX never leak usernames or passwords', async () => {
+  const csvRes = parseExport(
+    'vault,title,url,username,password,last_changed\n' +
+    ',, ,zq.u1@corp.example,Zq-Pw-One-1111,bad-date\n' +
+    'zq.u2@corp.example,zq.u2@corp.example,mailto:zq.u2@corp.example,zq.u2@corp.example,Zq-Pw-Two-2222,zq.u2@corp.example\n' +
+    ',example.com (zq.u3@corp.example),https://example.com,zq.u3@corp.example,Zq-Pw-Three-3333,2026-01-01\n' +
+    ',Zq-Pw-Four-4444,https://ok.example,zq.u4@corp.example,Zq-Pw-Four-4444,\n' +
+    ',,zq.u5@corp.example,zq.u5@corp.example,,\n',
+  )
+  assert.deepEqual(csvRes.items.map(i => [i.title, i.vault]), [
+    ['Untitled', 'Private'],
+    ['Untitled', 'Private'],
+    ['example.com', 'Private'],
+    ['ok.example', 'Private'],
+  ])
+  const allMsgs = csvRes.issues.map(i => i.message).join('\n')
+  for (const s of ['zq.u1@corp.example', 'zq.u2@corp.example', 'zq.u5@corp.example', 'Zq-Pw-Two-2222']) {
+    assert.ok(!allMsgs.includes(s), `issue message leaked ${s}`)
+  }
+  const headerless = parseExport('https://a.example,zq.header@corp.example,Zq-Header-Pw-999\n')
+  assert.equal(headerless.issues[0].level, 'error')
+  assert.ok(!headerless.issues[0].message.includes('zq.header@corp.example'))
+  assert.ok(!headerless.issues[0].message.includes('Zq-Header-Pw-999'))
+  const headerless2 = parseExport('alice_admin,ZqSecret1234,Ops\n')
+  assert.equal(headerless2.issues[0].level, 'error')
+  assert.ok(!headerless2.issues[0].message.includes('alice_admin'))
+  assert.ok(!headerless2.issues[0].message.includes('ZqSecret1234'))
+
+  const puxRes = parse1pux({ accounts: [{ vaults: [{ attrs: { name: 'zq.pux@corp.example', type: 'P' }, items: [
+    { overview: { title: 'zq.pux@corp.example', url: 'mailto:zq.pux@corp.example' }, details: { loginFields: [{ designation: 'username', value: 'zq.pux@corp.example' }, { designation: 'password', value: 'Zq-Pux-Pw-1234' }] } },
+  ] }] }] })
+  assert.equal(puxRes.items[0].title, 'Untitled')
+  assert.equal(puxRes.items[0].vault, 'Vault')
+
+  const badAccess = parseAccess('vault,title,url,username,password\nOps,Site,https://site.example,zq.acc@corp.example,Zq-Acc-Pw-1234\n')
+  assert.equal(badAccess.rows.length, 0)
+  assert.equal(badAccess.issues[0].level, 'error')
+
+  const fs = await analyze([
+    item({ title: 'zq.direct@corp.example', url: 'zq.direct@corp.example', vault: 'Zq-Direct-Pw-7777', username: 'zq.direct@corp.example', password: 'Zq-Direct-Pw-7777' }),
+  ])
+  const snap = snapshot(fs, context(fs, [], NOW), 's1', 'Test')
+  const dump = JSON.stringify({ fs, snap })
+  assert.ok(!dump.includes('zq.direct@corp.example'))
+  assert.ok(!dump.includes('Zq-Direct-Pw-7777'))
+  assert.equal(fs[0].title, 'Untitled')
+  assert.equal(fs[0].domain, '')
+  assert.equal(fs[0].vault, 'Private')
+})
+
 test('analyze: breach map, 2FA availability, duplicate item ids', async () => {
   const items = [item({ password: 'Password1', url: 'https://instagram.com' }), item({ password: 'Password1', url: 'https://instagram.com' })]
   const fs = await analyze(items, { breached: new Map([[await sha1('Password1'), true]]), tfa: new Set(['instagram.com']) })
