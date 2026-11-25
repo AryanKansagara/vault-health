@@ -4,7 +4,7 @@ import { parseCsv, toCsv } from './csv.ts'
 import { domainOf, supportsTfa, tfaDomains, TFA_FALLBACK, isSso } from './domain.ts'
 import { detectFormat, parse1pux, parseAccess, parseExport, parseJsonExport, type RawItem } from './formats.ts'
 import { analyze, parseRange, quickScore, sha1, skeleton, type Finding } from './analyze.ts'
-import { applyFixes, compare, context, fixPlanCsv, offboard, reasons, risk, severity, snapshot, summarize, WEIGHTS } from './risk.ts'
+import { applyFixes, breachLabel, compare, context, fixPlanCsv, offboard, reasons, risk, severity, snapshot, summarize, WEIGHTS } from './risk.ts'
 import { entropyBits, generate, SETS } from './password.ts'
 import { SAMPLE_BREACHED, SAMPLES, sampleBreaches, sampleFiles } from './sample.ts'
 import { readZipEntry } from './unzip.ts'
@@ -291,6 +291,20 @@ test('fix plan CSV is sorted by risk and explains each row', () => {
   assert.equal(rows[1].cells[1], 'High')
   assert.match(rows[1].cells[14], /Rotate/)
   assert.equal(rows.length, 3)
+})
+
+test('breachLabel and fixPlanCsv represent unchecked and partial breach checks honestly', () => {
+  assert.equal(breachLabel({ n: 5, breached: 0, unchecked: 5 }), 'breach check not run')
+  assert.equal(breachLabel({ n: 5, breached: 0, unchecked: 2 }), '2 unchecked (breach check partial)')
+  assert.equal(breachLabel({ n: 5, breached: 1, unchecked: 2 }), '1 breached (2 unchecked)')
+  assert.equal(breachLabel({ n: 5, breached: 0, unchecked: 0 }), '0 breached')
+
+  const fs = [finding({ id: 'u', title: 'StrongUnchecked', breached: null, strength: 4 })]
+  const csvRows = parseCsv(fixPlanCsv(fs, context(fs, [], NOW)))
+  assert.equal(csvRows.length, 2)
+  assert.equal(csvRows[1].cells[6], 'unchecked')
+  assert.match(csvRows[1].cells[14], /Re-import online to check breaches/)
+  assert.match(csvRows[1].cells[15], /Breach status unchecked/)
 })
 
 test('password generator: length, character classes, no look-alikes, uniqueness', () => {

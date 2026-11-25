@@ -2,7 +2,11 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import type { Finding } from './engine/analyze.ts'
 import { risk, severity, type Ctx, type Severity, type Summary } from './engine/risk.ts'
 
-export const grade = (h: number) => (h >= 85 ? { label: 'Healthy', tone: 'good' } : h >= 65 ? { label: 'Needs attention', tone: 'warn' } : { label: 'At risk', tone: 'bad' }) as { label: string; tone: 'good' | 'warn' | 'bad' }
+export const grade = (h: number, unchecked = 0) => (
+  unchecked > 0
+    ? (h < 65 ? { label: 'At risk (provisional)', tone: 'bad' } : { label: 'Provisional', tone: 'warn' })
+    : (h >= 85 ? { label: 'Healthy', tone: 'good' } : h >= 65 ? { label: 'Needs attention', tone: 'warn' } : { label: 'At risk', tone: 'bad' })
+) as { label: string; tone: 'good' | 'warn' | 'bad' }
 
 /** Animates a number toward its target. */
 export function useTween(target: number, ms = 700) {
@@ -27,7 +31,7 @@ export function useTween(target: number, ms = 700) {
 /** Score ring with severity segments around the inside. */
 export function HealthRing({ sum, size = 220, label = 'Vault health' }: { sum: Summary; size?: number; label?: string }) {
   const h = useTween(sum.health)
-  const g = grade(sum.health)
+  const g = grade(sum.health, sum.unchecked)
   const r = 44, c = 2 * Math.PI * r
   const sev: Severity[] = ['critical', 'high', 'medium', 'low']
   const total = Math.max(1, sum.n)
@@ -119,18 +123,18 @@ export function BlastGraph({ fs, ctx, selected, onSelect, height = 420, width = 
 }
 
 /** Small line chart of health across snapshots. */
-export function Trend({ points }: { points: { label: string; v: number }[] }) {
+export function Trend({ points }: { points: { label: string; v: number; provisional?: boolean }[] }) {
   if (points.length < 2) return null
   const W = 560, H = 160, P = 28
   const x = (i: number) => P + (i / (points.length - 1)) * (W - 2 * P)
   const y = (v: number) => H - P - (v / 100) * (H - 2 * P)
   const d = points.map((p, i) => `${i ? 'L' : 'M'}${x(i)},${y(p.v)}`).join(' ')
   return (
-    <svg className="trend" viewBox={`0 0 ${W} ${H}`} role="img" aria-label={`Health trend: ${points.map(p => `${p.label} ${p.v}`).join(', ')}`}>
+    <svg className="trend" viewBox={`0 0 ${W} ${H}`} role="img" aria-label={`Health trend: ${points.map(p => `${p.label} ${p.v}${p.provisional ? ' (provisional)' : ''}`).join(', ')}`}>
       {[0, 50, 100].map(v => <g key={v}><line x1={P} x2={W - P} y1={y(v)} y2={y(v)} className="grid" /><text x={4} y={y(v) + 4} className="axis">{v}</text></g>)}
       <path d={`${d} L${x(points.length - 1)},${y(0)} L${x(0)},${y(0)} Z`} className="area" />
       <path d={d} className="line" />
-      {points.map((p, i) => <g key={i}><circle cx={x(i)} cy={y(p.v)} r="4.5" className="pt" /><text x={x(i)} y={y(p.v) - 10} textAnchor="middle" className="val">{p.v}</text></g>)}
+      {points.map((p, i) => <g key={i}><circle cx={x(i)} cy={y(p.v)} r="4.5" className={p.provisional ? 'pt provisional' : 'pt'} /><text x={x(i)} y={y(p.v) - 10} textAnchor="middle" className="val">{p.v}{p.provisional ? '*' : ''}</text></g>)}
     </svg>
   )
 }
