@@ -2,7 +2,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { parseCsv, toCsv } from './csv.ts'
 import { domainOf, supportsTfa, tfaDomains, TFA_FALLBACK, isSso } from './domain.ts'
-import { detectFormat, parse1pux, parseAccess, parseExport, type RawItem } from './formats.ts'
+import { detectFormat, parse1pux, parseAccess, parseExport, parseJsonExport, type RawItem } from './formats.ts'
 import { analyze, parseRange, quickScore, sha1, skeleton, type Finding } from './analyze.ts'
 import { applyFixes, compare, context, fixPlanCsv, offboard, reasons, risk, severity, snapshot, summarize, WEIGHTS } from './risk.ts'
 import { entropyBits, generate, SETS } from './password.ts'
@@ -81,6 +81,25 @@ test('unzip: reads a stored entry out of a zip archive', async () => {
   const out = await readZipEntry(zip.buffer, 'export.data')
   assert.equal(new TextDecoder().decode(out!), '{"ok":1}')
   assert.equal(await readZipEntry(zip.buffer, 'missing'), null)
+})
+
+test('json and truncated zip errors give clear file-level messages', async () => {
+  assert.throws(() => parseJsonExport('{"accounts":[{"vaults":[{"items":[{"overview":{"title":"x', 'json'), /malformed or cut-off JSON/)
+  assert.throws(() => parseJsonExport('{"accounts":[{"vaults":', '1pux'), /Could not read export\.data/)
+  assert.throws(() => parseJsonExport('[{"a":1', 'json'), /malformed or cut-off JSON/)
+  assert.throws(() => parseJsonExport('{"a":1}\n{"b":2}\n'), /1pif \/ multi-record JSON/)
+  assert.throws(() => parseJsonExport('{"a":1}\n***56422544-3456-4890-9012-123456789012***\n{"b":2}\n'), /1pif \/ multi-record JSON/)
+  assert.throws(() => parseJsonExport('{"items":[]}'), /JSON exports are not supported yet/)
+  assert.equal(parseJsonExport('{"accounts":[]}', '1pux').format, '1password-1pux')
+
+  const name = new TextEncoder().encode('export.data')
+  const cenOffset = 10
+  const buf = new Uint8Array(cenOffset + 46 + name.length + 22), v = new DataView(buf.buffer)
+  v.setUint32(cenOffset, 0x02014b50, true); v.setUint32(cenOffset + 20, 999, true); v.setUint16(cenOffset + 28, name.length, true); v.setUint32(cenOffset + 42, 0, true)
+  buf.set(name, cenOffset + 46)
+  const eocd = cenOffset + 46 + name.length
+  v.setUint32(eocd, 0x06054b50, true); v.setUint16(eocd + 10, 1, true); v.setUint32(eocd + 12, 46 + name.length, true); v.setUint32(eocd + 16, cenOffset, true)
+  await assert.rejects(() => readZipEntry(buf.buffer, 'export.data'), /truncated or damaged/)
 })
 
 test('domains: registrable domain, IPs, two-level TLDs, junk', () => {
