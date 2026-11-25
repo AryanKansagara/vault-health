@@ -71,6 +71,48 @@ export function detectFormat(header: string[]): Format {
 
 const SHARED_HINT = /^(shared|team|company|everyone|marketing|ops|it|finance|social)/i
 
+/** Removes plaintext usernames or passwords from derived display strings (title, vault). */
+export function scrubSecret(text: string, username: string, password: string): string {
+  let t = text.trim()
+  if (!t) return ''
+  const p = password.trim(), u = username.trim()
+  if (p && (t === p || (p.length >= 4 && t.includes(p)))) return ''
+  if (u) {
+    const ul = u.toLowerCase()
+    if (t.toLowerCase() === ul) return ''
+    if (u.length >= 2 && !/^\d+$/.test(u)) {
+      const esc = u.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+      t = t.replace(new RegExp(`\\s*\\(${esc}\\)`, 'gi'), '').trim()
+      if (u.includes('@') || (u.length >= 5 && /[._-]/.test(u))) t = t.replace(new RegExp(esc, 'gi'), '').replace(/^[\s\-:|–—]+|[\s\-:|–—]+$/g, '').trim()
+    }
+    if (t.toLowerCase() === ul) return ''
+  }
+  return t
+}
+
+export function safeTitle(rawTitle: string, url: string, username: string, password: string): string {
+  const clean = scrubSecret(rawTitle, username, password)
+  if (clean) return clean
+  const u = username.trim().toLowerCase(), p = password.trim(), rawUrl = url.trim()
+  const urlIsSecret = !rawUrl || (u && rawUrl.toLowerCase() === u) || (p && (rawUrl === p || (p.length >= 4 && rawUrl.includes(p))))
+  const site = urlIsSecret ? '' : scrubSecret(siteName(rawUrl), username, password)
+  return site || 'Untitled'
+}
+
+const KNOWN_COL = new Set([
+  ...Object.values(SYN).flat(),
+  'notes', 'note', 'type', 'favorite', 'archived', 'tags', 'uuid', 'guid', 'extra', 'fields', 'reprompt', 'scope',
+  'person', 'member', 'role', 'permission', 'access', 'shared folder', 'service', 'domain', 'website', 'owner',
+])
+
+function headerSummary(header: string[]): string {
+  const looksHeader = header.length > 0
+    && header.some(c => KNOWN_COL.has(c.toLowerCase()))
+    && header.every(c => c.length > 0 && c.length <= 32 && /^[a-z][a-z _/-]*$/i.test(c))
+  if (!looksHeader) return 'No password column found. The first row does not look like column headers.'
+  return `No password column found. Columns seen: ${header.join(', ')}.`
+}
+
 function toIso(v: string): string | null {
   const s = v.trim()
   if (!s) return null
@@ -99,7 +141,7 @@ export function parseExport(text: string, forced?: Format): ParseResult {
   }
   if (format === 'lastpass' && lower.includes('name')) { col.title = lower.indexOf('name'); mapping.title = header[col.title] }
   if (col.password === undefined) {
-    issues.push({ line: 1, level: 'error', message: `No password column found. Columns seen: ${header.join(', ') || '(none)'}.` })
+    issues.push({ line: 1, level: 'error', message: headerSummary(header) })
     return { format, items: [], issues, rows: rows.length - 1, mapping }
   }
   const items: RawItem[] = []
@@ -120,10 +162,11 @@ export function parseExport(text: string, forced?: Format): ParseResult {
     const url = get('url')
     // Firefox stores its own sync keys as a "login" for chrome://FirefoxAccounts; it is not a site password.
     if (/^(chrome|about|moz-extension|chrome-extension):/i.test(url)) continue
-    const title = get('title') || (url && siteName(url)) || get('username')
+    const username = get('username')
+    const title = safeTitle(get('title'), url, username, password)
     if (!password && kindCol >= 0 && !/^(login|password)$/i.test(cells[kindCol] ?? '')) continue
-    if (!password) { issues.push({ line, level: 'warn', message: `“${title || 'Untitled'}” has no password; skipped.` }); continue }
-    let vault = get('vault')
+    if (!password) { issues.push({ line, level: 'warn', message: `“${title}” has no password; skipped.` }); continue }
+    let vault = scrubSecret(get('vault'), username, password)
     let shared = false
     if (format === 'bitwarden') shared = lower.includes('collections') && !!vault
     else if (format === 'lastpass') shared = /^shared[-\s]/i.test(vault)
@@ -131,8 +174,10 @@ export function parseExport(text: string, forced?: Format): ParseResult {
     if (!vault) vault = format === 'chrome' ? 'Browser' : format === 'firefox' ? 'Firefox' : format === 'apple' ? 'Apple Passwords' : 'Private'
     const changedRaw = get('changed')
     const changed = changedRaw ? toIso(changedRaw) : null
-    if (changedRaw && !changed) issues.push({ line, level: 'warn', message: `Could not read the date “${changedRaw}”; age is unknown for this item.` })
-    items.push({ line, title: title || 'Untitled', url, username: get('username'), password, totp: !!get('totp'), vault, shared, changed })
+    if (changedRaw && !changed) {
+      issues.push({ line, level: 'warn', message: 'Could not read the password-changed date; age is unknown for this item.' })
+    }
+    items.push({ line, title, url, username, password, totp: !!get('totp'), vault, shared, changed })
   }
   if (!items.length && !issues.some(i => i.level === 'error')) issues.push({ line: 1, level: 'error', message: 'No logins with passwords were found.' })
   return { format, items, issues, rows: rows.length - 1, mapping }
@@ -158,7 +203,7 @@ export function parse1pux(json: unknown): ParseResult {
         const fields: any[] = (it.details?.sections ?? []).flatMap((s: any) => (s.fields ?? []).map((f: any) => ({ ...f, section: s.title ?? '' })))
         const str = (...ids: string[]) => ids.map(id => fields.find(f => f.id === id)?.value?.string).find(Boolean) ?? ''
         const totp = fields.some(f => f.value && typeof f.value === 'object' && f.value.totp)
-        const title: string = it.overview?.title || 'Untitled'
+        const rawTitle = String(it.overview?.title ?? '')
         const history: { time?: number }[] = it.details?.passwordHistory ?? []
         // The newest history entry is when the current password was set; with no history it has not changed since the item was created.
         const ts = Math.max(0, ...history.map(h => h.time ?? 0)) || it.createdAt || it.updatedAt
@@ -168,7 +213,7 @@ export function parse1pux(json: unknown): ParseResult {
         if (password) {
           const url = it.overview?.url || it.overview?.urls?.[0]?.url || ''
           const username = loginFields.find(f => f.designation === 'username')?.value ?? ''
-          items.push({ line: n, title: it.overview?.title || (url && siteName(url)) || 'Untitled', url, username, password, totp, vault, shared, changed })
+          items.push({ line: n, title: safeTitle(rawTitle, url, username, password), url, username, password, totp, vault: scrubSecret(vault, username, password) || 'Vault', shared, changed })
           continue
         }
         // Server, database, router, email and API credential items keep their secrets in section fields. They are exactly
@@ -178,7 +223,8 @@ export function parse1pux(json: unknown): ParseResult {
         const username = str('username', 'pop_username', 'admin_console_username')
         for (const f of secrets) {
           const label = secrets.length > 1 ? ` (${[f.section, f.title || f.id].filter(Boolean).join(' ')})` : ''
-          items.push({ line: n, title: title + label, url, username, password: f.value.concealed, totp, vault, shared, changed })
+          const pw = f.value.concealed
+          items.push({ line: n, title: safeTitle(rawTitle + label, url, username, pw), url, username, password: pw, totp, vault: scrubSecret(vault, username, pw) || 'Vault', shared, changed })
         }
       }
     }
@@ -195,6 +241,9 @@ export function parseAccess(text: string): { rows: Access[]; issues: Issue[] } {
   const issues: Issue[] = []
   if (!rows.length) return { rows: [], issues: [{ line: 1, level: 'error', message: 'The file is empty.' }] }
   const h = rows[0].cells.map(x => x.trim().toLowerCase())
+  if (h.some(c => SYN.password.includes(c))) {
+    return { rows: [], issues: [{ line: 1, level: 'error', message: 'This file has a password column and looks like a vault export. Drop it under “1. Vault export” instead.' }] }
+  }
   const find = (...k: string[]) => k.map(x => h.indexOf(x)).find(i => i >= 0) ?? -1
   const pc = find('person', 'name', 'email', 'user', 'member')
   const vc = find('vault', 'collection', 'group', 'folder', 'shared folder')

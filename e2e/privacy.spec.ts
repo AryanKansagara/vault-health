@@ -86,3 +86,74 @@ test('with the breach check switched off nothing is sent to Have I Been Pwned', 
   expectNoSecrets(await dumpStorage(page), 'browser storage')
   expect(SECRETS.length).toBeGreaterThan(0)
 })
+
+test('derived fields, error messages, snapshots and exports never leak usernames or passwords', async ({ page }) => {
+  const tricky = [
+    { vault: 'zq.u1@fixture.example', title: '', url: '', username: 'zq.u1@fixture.example', password: 'Zq-Tricky-Pw-1001', changed: '2019-01-01' },
+    { vault: 'Ops', title: 'zq.u2@fixture.example', url: 'mailto:zq.u2@fixture.example', username: 'zq.u2@fixture.example', password: 'Zq-Tricky-Pw-2002', changed: '2019-01-01' },
+    { vault: 'Ops', title: 'example.com (zq.u3@fixture.example)', url: 'https://ok.fixture.example', username: 'zq.u3@fixture.example', password: 'Zq-Tricky-Pw-3003', changed: '2026-01-01' },
+    { vault: 'Ops', title: 'Zq-Tricky-Pw-4004', url: 'https://four.fixture.example', username: 'zq.u4@fixture.example', password: 'Zq-Tricky-Pw-4004', changed: '2026-01-01' },
+  ]
+  await newVault(page)
+  await importExport(page, file('tricky.csv', vaultCsv(tricky)))
+  await page.getByRole('button', { name: 'Save snapshot' }).click()
+  await expect(page.getByText('Snapshot saved')).toBeVisible()
+
+  const stored = await dumpStorage(page)
+  for (const a of tricky) {
+    expect(stored).not.toContain(a.username)
+    expect(stored).not.toContain(a.password)
+  }
+  await page.getByRole('link', { name: 'Fix plan' }).click()
+  const plan = await downloaded(page, () => page.getByRole('button', { name: 'Download CSV' }).click())
+  for (const a of tricky) {
+    expect(plan.text).not.toContain(a.username)
+    expect(plan.text).not.toContain(a.password)
+  }
+  await page.goto('/settings')
+  const all = await downloaded(page, () => page.getByRole('button', { name: 'Export all my data (JSON)' }).click())
+  for (const a of tricky) {
+    expect(all.text).not.toContain(a.username)
+    expect(all.text).not.toContain(a.password)
+  }
+
+  // Headerless CSV error must not leak row values either.
+  await page.goto('/app')
+  await page.locator('.project-card h3 a').click()
+  await page.getByRole('link', { name: 'Import' }).click()
+  await page.locator('input[type=file]').first().setInputFiles(file('headerless.csv', 'https://a.example,zq.head@fixture.example,Zq-Head-Pw-9999\n'))
+  await expect(page.getByText(/No password column found/)).toBeVisible()
+  const body = await page.locator('body').innerText()
+  expect(body).not.toContain('zq.head@fixture.example')
+  expect(body).not.toContain('Zq-Head-Pw-9999')
+})
+
+test('already stored items are preserved on load and sanitized on re-import without silent deletion', async ({ page }) => {
+  const id = await newVault(page)
+  await importExport(page, file('ok.csv', vaultCsv()))
+  // Simulate a pre-fix finding and snapshot stored before #2 was fixed.
+  await page.evaluate(async (pid) => {
+    const db = await new Promise<IDBDatabase>((res, rej) => { const r = indexedDB.open('vault-health'); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error) })
+    const tx = db.transaction('projects', 'readwrite')
+    const store = tx.objectStore('projects')
+    const p = await new Promise<any>(res => { const r = store.get(pid); r.onsuccess = () => res(r.result) })
+    p.findings.push({ id: 'legacy-untitled', title: 'legacy.user@fixture.example', domain: '', vault: 'Private', strength: 3, group: null, near: null, breached: false, changed: null, tfa: false, totp: false, shared: false, sso: false })
+    p.fixed['legacy-untitled'] = '2026-10-01'
+    p.snapshots[0].titles['legacy-untitled'] = 'legacy.user@fixture.example'
+    await new Promise<void>(res => { const r = store.put(p); r.onsuccess = () => res() })
+    db.close()
+  }, id)
+
+  await page.reload()
+  await page.getByRole('link', { name: 'Items' }).click()
+  await expect(page.getByText('legacy.user@fixture.example')).toBeVisible()
+
+  // Re-importing replaces findings with sanitized titles while keeping earlier snapshots intact.
+  await page.getByRole('link', { name: 'Import' }).click()
+  await importExport(page, file('repro.csv', 'title,url,username,password\n,,zq.new@fixture.example,Zq-New-Pw-8888\n'))
+  await page.getByRole('link', { name: 'Items' }).click()
+  await expect(page.getByText('Untitled')).toBeVisible()
+  await expect(page.getByText('zq.new@fixture.example')).toHaveCount(0)
+  await page.getByRole('link', { name: 'History' }).click()
+  await expect(page.locator('.snap-list li')).toHaveCount(2)
+})

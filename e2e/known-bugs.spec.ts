@@ -5,7 +5,6 @@ import { dumpStorage, chooseExport, expect, file, importExport, newVault, stat, 
 // failing once the bug is fixed, which is the cue to delete the test.fail() line and keep the test as a regression test.
 
 test('#2 a username is not stored as the title of an untitled item', async ({ page }) => {
-  test.fail()
   await newVault(page)
   await importExport(page, file('repro.csv', 'title,url,username,password\n,,zq.leaky.user@fixture.example,Zq-Leak-Pw-90817-Kd\nOk,https://ok.example,zq.other@fixture.example,Zq-Other-Pw-1234-Ab\n'))
   const stored = await dumpStorage(page)
