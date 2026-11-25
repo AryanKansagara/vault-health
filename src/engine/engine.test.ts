@@ -2,12 +2,13 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { parseCsv, toCsv } from './csv.ts'
 import { domainOf, supportsTfa, tfaDomains, TFA_FALLBACK, isSso } from './domain.ts'
-import { detectFormat, parse1pux, parseAccess, parseExport, type RawItem } from './formats.ts'
+import { detectFormat, parse1pux, parseAccess, parseExport, parseJsonExport, type RawItem } from './formats.ts'
 import { analyze, parseRange, quickScore, sha1, skeleton, type Finding } from './analyze.ts'
-import { applyFixes, compare, context, fixPlanCsv, offboard, reasons, risk, severity, snapshot, summarize, WEIGHTS } from './risk.ts'
+import { applyFixes, breachLabel, compare, context, fixPlanCsv, offboard, reasons, risk, severity, snapshot, summarize, WEIGHTS } from './risk.ts'
 import { entropyBits, generate, SETS } from './password.ts'
 import { SAMPLE_BREACHED, SAMPLES, sampleBreaches, sampleFiles } from './sample.ts'
 import { readZipEntry } from './unzip.ts'
+import { nearKey } from './analyze.ts'
 
 const NOW = new Date('2026-11-01T00:00:00Z')
 const item = (p: Partial<RawItem>): RawItem => ({ line: 2, title: 'Item', url: 'https://example.com', username: 'jo.user@corp.example', password: 'x', totp: false, vault: 'Private', shared: false, changed: null, ...p })
@@ -127,6 +128,25 @@ test('unzip: reads a stored entry out of a zip archive', async () => {
   assert.equal(await readZipEntry(zip.buffer, 'missing'), null)
 })
 
+test('json and truncated zip errors give clear file-level messages', async () => {
+  assert.throws(() => parseJsonExport('{"accounts":[{"vaults":[{"items":[{"overview":{"title":"x', 'json'), /malformed or cut-off JSON/)
+  assert.throws(() => parseJsonExport('{"accounts":[{"vaults":', '1pux'), /Could not read export\.data/)
+  assert.throws(() => parseJsonExport('[{"a":1', 'json'), /malformed or cut-off JSON/)
+  assert.throws(() => parseJsonExport('{"a":1}\n{"b":2}\n'), /1pif \/ multi-record JSON/)
+  assert.throws(() => parseJsonExport('{"a":1}\n***56422544-3456-4890-9012-123456789012***\n{"b":2}\n'), /1pif \/ multi-record JSON/)
+  assert.throws(() => parseJsonExport('{"items":[]}'), /JSON exports are not supported yet/)
+  assert.equal(parseJsonExport('{"accounts":[]}', '1pux').format, '1password-1pux')
+
+  const name = new TextEncoder().encode('export.data')
+  const cenOffset = 10
+  const buf = new Uint8Array(cenOffset + 46 + name.length + 22), v = new DataView(buf.buffer)
+  v.setUint32(cenOffset, 0x02014b50, true); v.setUint32(cenOffset + 20, 999, true); v.setUint16(cenOffset + 28, name.length, true); v.setUint32(cenOffset + 42, 0, true)
+  buf.set(name, cenOffset + 46)
+  const eocd = cenOffset + 46 + name.length
+  v.setUint32(eocd, 0x06054b50, true); v.setUint16(eocd + 10, 1, true); v.setUint32(eocd + 12, 46 + name.length, true); v.setUint32(eocd + 16, cenOffset, true)
+  await assert.rejects(() => readZipEntry(buf.buffer, 'export.data'), /truncated or damaged/)
+})
+
 test('domains: registrable domain, IPs, two-level TLDs, junk', () => {
   assert.equal(domainOf('https://login.mailchimp.com/x?y'), 'mailchimp.com')
   assert.equal(domainOf('www.example.co.uk'), 'example.co.uk')
@@ -156,6 +176,30 @@ test('near-reuse skeleton groups seasonal and leetspeak variants', () => {
   assert.equal(skeleton('Summer2024!'), skeleton('Summer2025!'))
   assert.equal(skeleton('P@ssw0rd'), skeleton('password'))
   assert.notEqual(skeleton('Summer2024!'), skeleton('Winter2024!'))
+})
+
+test('near-reuse handles infix digits/years and rejects unrelated false-positive pairs', async () => {
+  // True positives: infix years, infix boundary digits, camel-case infix digits.
+  assert.equal(nearKey('Zq-Willow-2024-Seed-Xk'), nearKey('Zq-Willow-2025-Seed-Xk'))
+  assert.equal(nearKey('Key-4-Prod'), nearKey('Key-5-Prod'))
+  assert.equal(nearKey('Key4Prod'), nearKey('Key5Prod'))
+  assert.equal(nearKey('S3cr3t!'), 'secret')
+
+  // False positives: random punctuation-interleaved, hex/UUID, numeric-heavy, token-split, or multi-digit-leetspeak pairs.
+  const unrelatedPairs: [string, string][] = [
+    ['x7!k9?m2&p', 'x1%k8#m4*p'],
+    ['7a91-2b48-6c30-5d82', '9a01-3b77-8c22-4d99'],
+    ['pass-1-word', 'password-2024'],
+    ['test-404-err', 'test-aoa-err'],
+    ['1234567890abcd', '9876543210abcd'],
+    ['1111abcd2222', '99ab88cd77'],
+    ['Zq-Willow-2024-Seed-Xk', 'Zq-Willow-2024!'],
+  ]
+  for (const [a, b] of unrelatedPairs) {
+    const fs = await analyze([item({ title: 'A', password: a }), item({ title: 'B', password: b })])
+    assert.equal(fs[0].near, null, `false positive near-reuse between ${a} and ${b}`)
+    assert.equal(fs[1].near, null, `false positive near-reuse between ${a} and ${b}`)
+  }
 })
 
 test('analyze: exact and near reuse groups, stable ids, no plaintext in output', async () => {
@@ -316,6 +360,20 @@ test('fix plan CSV is sorted by risk and explains each row', () => {
   assert.equal(rows[1].cells[1], 'High')
   assert.match(rows[1].cells[14], /Rotate/)
   assert.equal(rows.length, 3)
+})
+
+test('breachLabel and fixPlanCsv represent unchecked and partial breach checks honestly', () => {
+  assert.equal(breachLabel({ n: 5, breached: 0, unchecked: 5 }), 'breach check not run')
+  assert.equal(breachLabel({ n: 5, breached: 0, unchecked: 2 }), '2 unchecked (breach check partial)')
+  assert.equal(breachLabel({ n: 5, breached: 1, unchecked: 2 }), '1 breached (2 unchecked)')
+  assert.equal(breachLabel({ n: 5, breached: 0, unchecked: 0 }), '0 breached')
+
+  const fs = [finding({ id: 'u', title: 'StrongUnchecked', breached: null, strength: 4 })]
+  const csvRows = parseCsv(fixPlanCsv(fs, context(fs, [], NOW)))
+  assert.equal(csvRows.length, 2)
+  assert.equal(csvRows[1].cells[6], 'unchecked')
+  assert.match(csvRows[1].cells[14], /Re-import online to check breaches/)
+  assert.match(csvRows[1].cells[15], /Breach status unchecked/)
 })
 
 test('password generator: length, character classes, no look-alikes, uniqueness', () => {

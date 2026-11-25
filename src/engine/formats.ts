@@ -261,3 +261,25 @@ export function parseAccess(text: string): { rows: Access[]; issues: Issue[] } {
   }
   return { rows: out, issues }
 }
+
+/** Parses JSON vault text or 1PUX export.data with clear messages for truncated JSON, .1pif and unsupported JSON. */
+export function parseJsonExport(text: string, source: 'json' | '1pux' = 'json'): ParseResult {
+  const trimmed = text.trim()
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(trimmed)
+  } catch {
+    const lines = trimmed.split(/\r?\n/).map(l => l.trim()).filter(Boolean)
+    const firstIsJson = lines.length > 1 && lines[0].startsWith('{') && (() => { try { JSON.parse(lines[0]); return true } catch { return false } })()
+    if (/^\*{3}[0-9a-f-]{8,}\*{3}$/im.test(trimmed) || firstIsJson) {
+      throw new Error('1Password .1pif / multi-record JSON exports are not supported. Export as .1pux or CSV instead.')
+    }
+    throw new Error(source === '1pux'
+      ? 'Could not read export.data inside this .1pux archive. The file looks malformed or cut off; re-export it from 1Password as .1pux or CSV.'
+      : 'This file looks like malformed or cut-off JSON and could not be read. Re-export your vault as CSV or .1pux.')
+  }
+  if (source === '1pux' || (parsed && typeof parsed === 'object' && !Array.isArray(parsed) && 'accounts' in parsed)) {
+    return parse1pux(parsed)
+  }
+  throw new Error('JSON exports are not supported yet. Export as CSV instead (see the docs).')
+}

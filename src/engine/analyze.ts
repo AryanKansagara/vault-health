@@ -33,9 +33,28 @@ const hex = (b: ArrayBuffer) => [...new Uint8Array(b)].map(x => x.toString(16).p
 export const sha1 = async (s: string) => hex(await crypto.subtle.digest('SHA-1', new TextEncoder().encode(s))).toUpperCase()
 const sha256 = async (s: string) => hex(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(s)))
 
-/** Letters-only skeleton: "Summer2024!" and "summer-2025" both become "summer". */
+function normalizeCore(pw: string): string {
+  return pw
+    .replace(/\d{2,}|(?<![a-zA-Z])\d+|\d+(?![a-zA-Z])|(?<=[a-z])\d(?=[A-Z])/g, ' ')
+    .replace(/[@4]/g, 'a')
+    .replace(/3/g, 'e')
+    .replace(/[$5]/g, 's')
+    .replace(/0/g, 'o')
+    .toLowerCase()
+}
+
+/** Letters-only skeleton: "Summer2024!" and "summer-2025" both become "summer"; "Key-4-Prod" and "Key-5-Prod" become "keyprod". */
 export function skeleton(pw: string): string {
-  return pw.replace(/^[^a-zA-Z]+|[^a-zA-Z]+$/g, '').toLowerCase().replace(/[@4]/g, 'a').replace(/3/g, 'e').replace(/[$5]/g, 's').replace(/0/g, 'o').replace(/[^a-z]/g, '')
+  return normalizeCore(pw).replace(/[^a-z]/g, '')
+}
+
+/** Word-token near-reuse key that keeps token boundaries and ignores short/noisy passwords to avoid false positives. */
+export function nearKey(pw: string): string | null {
+  const tokens = normalizeCore(pw).split(/[^a-z]+/).filter(Boolean)
+  const coreLen = tokens.reduce((n, t) => n + t.length, 0)
+  if (coreLen < 4 || Math.max(0, ...tokens.map(t => t.length)) < 3) return null
+  if (coreLen / Math.max(1, pw.length) < 0.35) return null
+  return tokens.join('|')
 }
 
 /**
@@ -80,8 +99,8 @@ export async function analyze(rawItems: RawItem[], opts: AnalyzeOptions = {}): P
   const nearPw = new Map<string, Set<string>>()
   for (const it of items) {
     exact.set(it.password, (exact.get(it.password) ?? 0) + 1)
-    const sk = skeleton(it.password)
-    if (sk.length >= 4) (nearPw.get(sk) ?? nearPw.set(sk, new Set()).get(sk)!).add(it.password)
+    const nk = nearKey(it.password)
+    if (nk) (nearPw.get(nk) ?? nearPw.set(nk, new Set()).get(nk)!).add(it.password)
   }
   const out: Finding[] = []
   const seen = new Map<string, number>()
@@ -92,8 +111,8 @@ export async function analyze(rawItems: RawItem[], opts: AnalyzeOptions = {}): P
     const dup = seen.get(id) ?? 0
     seen.set(id, dup + 1)
     if (dup) id += `-${dup}`
-    const sk = skeleton(it.password)
-    const nearSet = sk.length >= 4 ? nearPw.get(sk)! : null
+    const nk = nearKey(it.password)
+    const nearSet = nk ? nearPw.get(nk)! : null
     const s = scoreCache.get(it.password) ?? score(it.password)
     scoreCache.set(it.password, s)
     const h = opts.breached ? await sha1(it.password) : ''
@@ -104,7 +123,7 @@ export async function analyze(rawItems: RawItem[], opts: AnalyzeOptions = {}): P
       vault: it.vault,
       strength: s,
       group: exact.get(it.password)! > 1 ? (await sha256(salt + it.password)).slice(0, 8) : null,
-      near: nearSet && nearSet.size > 1 ? (await sha256(salt + '~' + sk)).slice(0, 8) : null,
+      near: nearSet && nearSet.size > 1 ? (await sha256(salt + '~' + nk)).slice(0, 8) : null,
       breached: opts.breached?.has(h) ? opts.breached.get(h)! : null,
       changed: it.changed,
       tfa: opts.tfa ? supportsTfa(domain, opts.tfa) : false,

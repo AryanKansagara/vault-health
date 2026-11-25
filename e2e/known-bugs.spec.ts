@@ -27,26 +27,27 @@ test('#3 a CSV cut off in the middle of its last row is flagged', async ({ page,
 })
 
 test('#4 a cut-off JSON export gets a message about the file, not a JSON.parse error', async ({ page }) => {
-  test.fail()
   await newVault(page)
   await chooseExport(page, file('cut.json', '{"accounts":[{"vaults":[{"items":[{"overview":{"title":"x', 'application/json'))
   await expect(page.getByRole('alert')).toBeVisible()
+  await expect(page.getByRole('alert')).toContainText(/malformed or cut-off JSON/)
   await expect(page.getByRole('alert')).not.toContainText(/JSON at position|Unexpected end of JSON/)
   await chooseExport(page, file('cut.1pux', zip('export.data', '{"accounts":[{"vaults":[{"items":[{"overview":{"title":"x'), 'application/zip'))
+  await expect(page.getByRole('alert')).toContainText(/Could not read export\.data/)
   await expect(page.getByRole('alert')).not.toContainText(/JSON at position|Unexpected end of JSON/)
 })
 
 test('#5 the vault list does not say "0 breached" after the breach check failed', async ({ page, net }) => {
-  test.fail()
   net.breach = 'http500'
   await newVault(page)
   await importExport(page, file('repro.csv', 'title,url,username,password\nRouter,http://router.example,zq.admin,Zq-Fixture-Breached-0001\nWiki,https://wiki.example,zq.wiki,abc123\n'))
   await page.goto('/app')
   await expect(page.locator('.project-card')).not.toContainText('0 breached')
+  await expect(page.locator('.project-card')).not.toContainText('Healthy')
+  await expect(page.locator('.project-card')).toContainText('breach check not run')
 })
 
 test('#6 near-identical passwords are grouped when the changing digits are in the middle', async ({ page }) => {
-  test.fail()
   await newVault(page)
   await importExport(page, file('repro.csv', 'title,url,username,password\nA,https://a.example,u1,Zq-Willow-2024-Seed-Xk\nB,https://b.example,u2,Zq-Willow-2025-Seed-Xk\nC,https://c.example,u3,Zq-Willow-2024!\nD,https://d.example,u4,Zq-Willow-2025!\n'))
   expect(await stat(page, 'Near-reused')).toBe(4)

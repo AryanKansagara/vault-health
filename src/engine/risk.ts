@@ -223,6 +223,19 @@ export function prioritized(fs: Finding[], ctx: Ctx) {
 
 export function fixPlanCsv(fs: Finding[], ctx: Ctx): string {
   const rows: (string | number | boolean | null)[][] = [['priority', 'item', 'domain', 'vault', 'risk', 'severity', 'breached', 'reused_with', 'strength_0_4', 'last_changed', 'two_factor_available', 'totp_saved', 'shared', 'sso_candidate', 'action', 'reasons']]
-  prioritized(fs, ctx).forEach(({ f, r }, i) => rows.push([i + 1, f.title, f.domain, f.vault, r, severity(r), f.breached ?? 'unchecked', siblingsCount(f, ctx), f.strength, f.changed, f.tfa, f.totp, isShared(f, ctx), f.sso, action(f, ctx), reasons(f, ctx).map(x => x.text).join('; ')]))
+  const items = fs.map(f => ({ f, r: risk(f, ctx) })).filter(x => x.r > 0 || x.f.breached === null)
+    .sort((a, b) => b.r - a.r || Number(a.f.breached === null) - Number(b.f.breached === null) || a.f.title.localeCompare(b.f.title))
+  items.forEach(({ f, r }, i) => {
+    const act = action(f, ctx)
+    const fullAct = f.breached === null ? (act === 'No action needed' ? 'Re-import online to check breaches' : `${act}; re-import online to check breaches`) : act
+    const why = [...reasons(f, ctx).map(x => x.text), ...(f.breached === null ? ['Breach status unchecked'] : [])].join('; ')
+    rows.push([i + 1, f.title, f.domain, f.vault, r, severity(r), f.breached ?? 'unchecked', siblingsCount(f, ctx), f.strength, f.changed, f.tfa, f.totp, isShared(f, ctx), f.sso, fullAct, why])
+  })
   return toCsv(rows)
+}
+
+export function breachLabel(sum: Pick<Summary, 'n' | 'breached' | 'unchecked'>): string {
+  if (!sum.unchecked) return `${sum.breached} breached`
+  if (sum.n > 0 && sum.unchecked >= sum.n) return 'breach check not run'
+  return sum.breached ? `${sum.breached} breached (${sum.unchecked} unchecked)` : `${sum.unchecked} unchecked (breach check partial)`
 }
