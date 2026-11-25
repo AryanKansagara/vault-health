@@ -1,6 +1,17 @@
-/** RFC 4180 CSV parser: quoted fields, escaped quotes, CRLF, newlines inside quotes. Returns rows with their 1-based start line. */
-export function parseCsv(text: string): { cells: string[]; line: number }[] {
-  const out: { cells: string[]; line: number }[] = []
+export interface CsvRow {
+  cells: string[]
+  line: number
+  terminated: boolean
+}
+
+export interface CsvParseResult {
+  rows: CsvRow[]
+  unterminatedLine: number | null
+}
+
+/** RFC 4180 CSV parser with EOF/truncation metadata: quoted fields, escaped quotes, CRLF, newlines inside quotes. */
+export function parseCsvWithStatus(text: string): CsvParseResult {
+  const out: CsvRow[] = []
   let row: string[] = []
   let field = ''
   let quoted = false
@@ -23,15 +34,21 @@ export function parseCsv(text: string): { cells: string[]; line: number }[] {
     else if (c === '\n' || c === '\r') {
       if (c === '\r' && src[i + 1] === '\n') i++
       row.push(field); field = ''
-      if (row.length > 1 || row[0] !== '') out.push({ cells: row, line: rowLine })
+      if (row.length > 1 || row[0] !== '') out.push({ cells: row, line: rowLine, terminated: true })
       row = []
       line++
       rowLine = line
     } else field += c
   }
+  const unterminatedLine = quoted ? rowLine : null
   row.push(field)
-  if (row.length > 1 || row[0] !== '') out.push({ cells: row, line: rowLine })
-  return out
+  if (quoted || row.length > 1 || row[0] !== '') out.push({ cells: row, line: rowLine, terminated: false })
+  return { rows: out, unterminatedLine }
+}
+
+/** RFC 4180 CSV parser: quoted fields, escaped quotes, CRLF, newlines inside quotes. Returns rows with their 1-based start line. */
+export function parseCsv(text: string): { cells: string[]; line: number }[] {
+  return parseCsvWithStatus(text).rows.map(({ cells, line }) => ({ cells, line }))
 }
 
 const esc = (v: string | number | boolean | null | undefined) => {

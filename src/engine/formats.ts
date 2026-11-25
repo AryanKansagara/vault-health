@@ -1,4 +1,4 @@
-import { parseCsv } from './csv.ts'
+import { parseCsv, parseCsvWithStatus } from './csv.ts'
 import { siteName } from './domain.ts'
 
 /** One parsed login. Holds the plaintext password, so it only ever lives in memory. */
@@ -123,11 +123,15 @@ function toIso(v: string): string | null {
 }
 
 export function parseExport(text: string, forced?: Format): ParseResult {
-  const rows = parseCsv(text)
+  const { rows, unterminatedLine } = parseCsvWithStatus(text)
   const issues: Issue[] = []
   if (!rows.length) return { format: forced ?? 'generic', items: [], issues: [{ line: 1, level: 'error', message: 'The file is empty.' }], rows: 0, mapping: {} }
   const header = rows[0].cells.map(x => x.trim())
+  while (header.length > 1 && !header[header.length - 1]) header.pop()
   const format = forced ?? detectFormat(header)
+  if (unterminatedLine === rows[0].line) {
+    return { format, items: [], issues: [{ line: 1, level: 'error', message: 'The header row has an unterminated quoted field (the file may be cut off).' }], rows: 0, mapping: {} }
+  }
   const lower = header.map(x => x.toLowerCase())
   const mapping: Partial<Record<Field, string>> = {}
   const col: Partial<Record<Field, number>> = {}
@@ -145,9 +149,13 @@ export function parseExport(text: string, forced?: Format): ParseResult {
   // Non-login rows (secure notes, cards, identities) carry no password; skip them quietly instead of warning on each.
   const kindCol = format === '1password-csv' ? lower.indexOf('type') : -1
   const archivedCol = format === '1password-csv' ? lower.indexOf('archived') : -1
-  for (const { cells, line } of rows.slice(1)) {
+  for (const { cells, line, terminated } of rows.slice(1)) {
+    if (cells.every(c => !c.trim())) continue
+    if (unterminatedLine === line) { issues.push({ line, level: 'warn', message: 'Unterminated quoted field; skipped (the file may be cut off).' }); continue }
+    if (!terminated && cells.length < header.length) { issues.push({ line, level: 'warn', message: `Has ${cells.length} of ${header.length} columns; skipped (the file may be cut off).` }); continue }
     const get = (f: Field) => (col[f] !== undefined ? cells[col[f]!] ?? '' : '').trim()
-    if (cells.length < header.length - 1 && cells.length < 3) { issues.push({ line, level: 'warn', message: `Only ${cells.length} column(s); skipped.` }); continue }
+    const hasPw = col.password !== undefined && !!(cells[col.password] ?? '').trim()
+    if (cells.length < header.length - 1 && cells.length < 3 && !hasPw) { issues.push({ line, level: 'warn', message: `Only ${cells.length} column(s); skipped.` }); continue }
     if (typeCol >= 0 && cells[typeCol] && cells[typeCol] !== 'login') continue
     if (archivedCol >= 0 && /^true$/i.test(cells[archivedCol] ?? '')) continue
     const password = col.password !== undefined ? cells[col.password] ?? '' : ''
