@@ -8,6 +8,7 @@ import { applyFixes, breachLabel, compare, context, fixPlanCsv, offboard, reason
 import { entropyBits, generate, SETS } from './password.ts'
 import { SAMPLE_BREACHED, SAMPLES, sampleBreaches, sampleFiles } from './sample.ts'
 import { readZipEntry } from './unzip.ts'
+import { nearKey } from './analyze.ts'
 
 const NOW = new Date('2026-11-01T00:00:00Z')
 const item = (p: Partial<RawItem>): RawItem => ({ line: 2, title: 'Item', url: 'https://example.com', username: 'jo.user@corp.example', password: 'x', totp: false, vault: 'Private', shared: false, changed: null, ...p })
@@ -131,6 +132,30 @@ test('near-reuse skeleton groups seasonal and leetspeak variants', () => {
   assert.equal(skeleton('Summer2024!'), skeleton('Summer2025!'))
   assert.equal(skeleton('P@ssw0rd'), skeleton('password'))
   assert.notEqual(skeleton('Summer2024!'), skeleton('Winter2024!'))
+})
+
+test('near-reuse handles infix digits/years and rejects unrelated false-positive pairs', async () => {
+  // True positives: infix years, infix boundary digits, camel-case infix digits.
+  assert.equal(nearKey('Zq-Willow-2024-Seed-Xk'), nearKey('Zq-Willow-2025-Seed-Xk'))
+  assert.equal(nearKey('Key-4-Prod'), nearKey('Key-5-Prod'))
+  assert.equal(nearKey('Key4Prod'), nearKey('Key5Prod'))
+  assert.equal(nearKey('S3cr3t!'), 'secret')
+
+  // False positives: random punctuation-interleaved, hex/UUID, numeric-heavy, token-split, or multi-digit-leetspeak pairs.
+  const unrelatedPairs: [string, string][] = [
+    ['x7!k9?m2&p', 'x1%k8#m4*p'],
+    ['7a91-2b48-6c30-5d82', '9a01-3b77-8c22-4d99'],
+    ['pass-1-word', 'password-2024'],
+    ['test-404-err', 'test-aoa-err'],
+    ['1234567890abcd', '9876543210abcd'],
+    ['1111abcd2222', '99ab88cd77'],
+    ['Zq-Willow-2024-Seed-Xk', 'Zq-Willow-2024!'],
+  ]
+  for (const [a, b] of unrelatedPairs) {
+    const fs = await analyze([item({ title: 'A', password: a }), item({ title: 'B', password: b })])
+    assert.equal(fs[0].near, null, `false positive near-reuse between ${a} and ${b}`)
+    assert.equal(fs[1].near, null, `false positive near-reuse between ${a} and ${b}`)
+  }
 })
 
 test('analyze: exact and near reuse groups, stable ids, no plaintext in output', async () => {

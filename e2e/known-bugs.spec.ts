@@ -42,7 +42,6 @@ test('#5 the vault list does not say "0 breached" after the breach check failed'
 })
 
 test('#6 near-identical passwords are grouped when the changing digits are in the middle', async ({ page }) => {
-  test.fail()
   await newVault(page)
   await importExport(page, file('repro.csv', 'title,url,username,password\nA,https://a.example,u1,Zq-Willow-2024-Seed-Xk\nB,https://b.example,u2,Zq-Willow-2025-Seed-Xk\nC,https://c.example,u3,Zq-Willow-2024!\nD,https://d.example,u4,Zq-Willow-2025!\n'))
   expect(await stat(page, 'Near-reused')).toBe(4)

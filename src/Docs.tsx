@@ -95,7 +95,7 @@ export default function Docs() {
         <p>Severity: critical ≥ 50, high ≥ 25, medium ≥ 10, else low.</p>
         <p><b>Overall health</b> = 100 − ½ × (mean item risk) − ½ × (percent of items rated high or critical). The second term keeps a handful of dangerous items from disappearing inside a large, otherwise clean vault.</p>
         <p><b>Blast radius</b> (offboarding order) = 10 × the accounts that open with this password (the item plus every item sharing it) + the people who need the new password (capped at 10) + risk ÷ 10.</p>
-        <p><b>Near-reuse</b>: leading and trailing digits and symbols are stripped, common substitutions (@→a, 0→o, 3→e, $→s) are undone, and passwords with the same letters-only core of 4+ characters are grouped. <code>Summer2024!</code>, <code>Summer2025!</code> and <code>summer-2026</code> all become “summer”.</p>
+        <p><b>Near-reuse</b>: multi-digit numbers (years/counters) and separator digits/symbols are removed, single-character leetspeak substitutions (@→a, 0→o, 3→e, $→s) are undone, and passwords sharing the same word-token core (4+ letters, at least one 3+ letter word, and ≥35% letter coverage) are grouped. <code>Summer2024!</code>, <code>Summer2025!</code> and <code>summer-2026</code> become “summer”, and <code>Willow-2024-Seed</code> / <code>Willow-2025-Seed</code> match as well, while unrelated random or numeric strings stay ungrouped.</p>
       </article>
 
       <article id="checks" className="doc-section">
