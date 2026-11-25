@@ -44,6 +44,7 @@ export default function Security() {
           <li><b>Reuse ids</b> are the first 8 hex characters (32 bits) of SHA-256(random salt + password). The salt is made fresh for each import and thrown away when the analysis finishes, so the ids cannot be tested against guesses later, and 32 bits is far too short to identify a password anyway.</li>
           <li>The item id includes the username in its hash so two logins on one site stay separate. It is a one-way hash of non-secret fields.</li>
           <li>Generated replacement passwords exist only in the dialog that shows them.</li>
+          <li><b>Existing saved items</b>: vaults imported before the untitled-item fix keep their existing findings, rotation marks, offboarding plans and snapshots rather than being silently deleted. Re-importing the vault replaces its findings with sanitized titles; delete older snapshots in History (or delete the vault) if an earlier untitled row saved a username.</li>
         </ul>
       </article>
 

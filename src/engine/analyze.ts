@@ -1,5 +1,5 @@
 import { domainOf, isSso, supportsTfa } from './domain.ts'
-import type { RawItem } from './formats.ts'
+import { safeTitle, scrubSecret, type RawItem } from './formats.ts'
 
 /**
  * The only thing that is ever stored or synced. No password, no username, no hash a password can be tested against:
@@ -64,7 +64,16 @@ export interface AnalyzeOptions {
   tfa?: Set<string>
 }
 
-export async function analyze(items: RawItem[], opts: AnalyzeOptions = {}): Promise<Finding[]> {
+function sanitizeRawItem(it: RawItem): RawItem {
+  const title = safeTitle(it.title, it.url, it.username, it.password)
+  const vault = scrubSecret(it.vault, it.username, it.password) || 'Private'
+  const dom = domainOf(it.url)
+  const badDom = !dom || !scrubSecret(dom, it.username, it.password)
+  return { ...it, title, vault, url: badDom ? '' : it.url }
+}
+
+export async function analyze(rawItems: RawItem[], opts: AnalyzeOptions = {}): Promise<Finding[]> {
+  const items = rawItems.map(sanitizeRawItem)
   const score = opts.score ?? quickScore
   const salt = crypto.getRandomValues(new Uint8Array(16)).join('.')
   const exact = new Map<string, number>()
