@@ -328,6 +328,7 @@ input[type='range'] { padding: 0; border: 0; accent-color: var(--brand); backgro
 .trend .line { fill: none; stroke: var(--brand); stroke-width: 2.5; stroke-linejoin: round; }
 .trend .area { fill: var(--accent-soft); }
 .trend .pt { fill: var(--surface); stroke: var(--brand); stroke-width: 2.5; }
+.trend .pt.provisional { stroke: var(--high); }
 .trend .val { font: 700 12px var(--font-head); fill: var(--ink); }
 .sev-pill { display: inline-flex; align-items: center; gap: 6px; padding: 3px 4px 3px 9px; border-radius: var(--pill); font: 600 11px/1 var(--font-body); text-transform: capitalize; white-space: nowrap; }
 .sev-pill b { font: 700 11px/1 var(--font-mono); background: var(--surface); border-radius: var(--pill); padding: 3px 6px; }

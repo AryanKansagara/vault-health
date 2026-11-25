@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, useSyncExternalStore } from 'react'
 import type { Finding } from './engine/analyze.ts'
-import { ageDays, compare, fixPlanCsv, isShared, offboard, people, prioritized, reasons, risk, siblings, WEIGHTS } from './engine/risk.ts'
+import { ageDays, breachLabel, compare, fixPlanCsv, isShared, offboard, people, prioritized, reasons, risk, siblings, WEIGHTS } from './engine/risk.ts'
 import { entropyBits, generate, SETS } from './engine/password.ts'
 import { clearImport, heldImport, subscribeHeld } from './checks.ts'
 import { derive, saveSnapshot, today, useProject, type Derived } from './projectData.ts'
@@ -91,7 +91,8 @@ export function markRotated(p: Project, ids: string[], on = true) {
 }
 
 const STAT = (sum: Derived['sum']) => [
-  ['Breached', sum.breached, 'Seen in public breach corpora (HIBP)', 'breached'],
+  [sum.unchecked ? (sum.unchecked >= sum.n ? 'Breached (not checked)' : 'Breached (partial)') : 'Breached', sum.breached, sum.unchecked ? 'Breach check did not finish for all items' : 'Seen in public breach corpora (HIBP)', 'breached'],
+  ...(sum.unchecked > 0 ? [['Unchecked', sum.unchecked, 'Breach check did not reach these items', 'unchecked'] as const] : []),
   ['Reused', sum.reused, 'Same password as another item', 'reused'],
   ['Near-reused', sum.near, 'A variant of another item’s password', 'near'],
   ['Weak', sum.weak, 'zxcvbn score 0 or 1', 'weak'],
@@ -106,7 +107,7 @@ function Overview({ p, d }: { p: Project; d: Derived }) {
   const selF = sel ? d.eff.find(f => f.id === sel) : null
   const healed = useMemo(() => new Set(Object.keys(p.fixed)), [p.fixed])
   const last = p.snapshots.at(-2)
-  const g = grade(d.sum.health)
+  const g = grade(d.sum.health, d.sum.unchecked)
   const unchecked = p.imports.find(i => i.kind === 'vault')?.breach
   return (
     <div className="stack">
@@ -117,7 +118,7 @@ function Overview({ p, d }: { p: Project; d: Derived }) {
             <h2>{g.label}</h2>
             <p className="muted small">100 − ½ × mean item risk − ½ × % of items rated high or critical. <Link href="/docs#scoring">How scoring works</Link></p>
             {last && <p className="small">{signed(d.sum.health - last.summary.health)} since {last.label}</p>}
-            {(unchecked === 'skipped' || unchecked === 'partial') && <p className="warn-text small">Breach check {unchecked === 'partial' ? 'only partly ran' : 'was skipped'}; re-import online to complete it.</p>}
+            {(unchecked === 'skipped' || unchecked === 'partial' || d.sum.unchecked > 0) && <p className="warn-text small">Breach check {unchecked === 'partial' || (d.sum.unchecked > 0 && d.sum.unchecked < d.sum.n) ? 'only partly ran' : 'was skipped'}; re-import online to complete it.</p>}
             <div className="sev-legend">{(['critical', 'high', 'medium', 'low'] as const).map(s => <span key={s}><i className={`sev-${s}`} />{d.sum.bySeverity[s]} {s}</span>)}</div>
           </div>
         </div>
@@ -141,7 +142,7 @@ function Overview({ p, d }: { p: Project; d: Derived }) {
               <button type="button" className="linkish grow trunc left" onClick={() => setSel(f.id)}>{f.title}<small className="muted"> {f.vault}</small></button>
               <button type="button" className="btn ghost sm" onClick={() => markRotated(p, [f.id, ...siblings(f, d.eff).map(x => x.id)])}>Rotated</button>
             </li>
-          ))}</ol> : <Empty title="Nothing to fix">Every item scores zero risk. Save a snapshot for your records.</Empty>}
+          ))}</ol> : d.sum.unchecked > 0 ? <Empty title="Breach check incomplete">No other risk signals found, but {plural(d.sum.unchecked, 'item')} remain unchecked.</Empty> : <Empty title="Nothing to fix">Every item scores zero risk. Save a snapshot for your records.</Empty>}
         </div>
       </div>
     </div>
@@ -165,6 +166,7 @@ function ItemDetail({ p, f, d, onClose }: { p: Project; f: Finding; d: Derived; 
 const FILTERS: Record<string, [string, (f: Finding, d: Derived) => boolean]> = {
   all: ['All', () => true],
   breached: ['Breached', f => !!f.breached],
+  unchecked: ['Unchecked', f => f.breached === null],
   reused: ['Reused', (f, d) => !!f.group && (d.ctx.groupSize.get(f.group) ?? 0) > 1],
   // Same rule as the overview count: an item that is already exactly reused is counted under Reused only.
   near: ['Near-reused', (f, d) => !FILTERS.reused[1](f, d) && !!f.near && (d.ctx.nearSize.get(f.near) ?? 0) > 1],
@@ -363,13 +365,15 @@ export function Generator() {
 
 function Actions({ p, d }: { p: Project; d: Derived }) {
   const plan = prioritized(d.eff, d.ctx)
+  const hasUnchecked = d.sum.unchecked > 0
   return (
     <div className="stack">
+      {hasUnchecked && <p className="warn-text small">Breach check incomplete ({breachLabel(d.sum)}). The fix-plan CSV marks unchecked rows and this score is provisional.</p>}
       <div className="action-cards">
         <article className="panel">
           <h3>Fix plan (CSV)</h3>
-          <p className="muted small">{plural(plan.length, 'item')} with risk, ordered worst first, with the action and reasons. Opens in Excel or Sheets.</p>
-          <button type="button" className="btn primary" disabled={!plan.length} onClick={() => download(`${p.name.replace(/\W+/g, '-').toLowerCase()}-fix-plan-${today()}.csv`, fixPlanCsv(d.eff, d.ctx))}>Download CSV</button>
+          <p className="muted small">{plural(plan.length, 'item')} with risk{hasUnchecked ? ` plus ${plural(d.sum.unchecked, 'unchecked item')}` : ''}, ordered worst first, with the action and reasons. Opens in Excel or Sheets.</p>
+          <button type="button" className="btn primary" disabled={!plan.length && !hasUnchecked} onClick={() => download(`${p.name.replace(/\W+/g, '-').toLowerCase()}-fix-plan-${today()}.csv`, fixPlanCsv(d.eff, d.ctx))}>Download CSV</button>
         </article>
         <article className="panel">
           <h3>Printable report</h3>
@@ -387,7 +391,7 @@ function Actions({ p, d }: { p: Project; d: Derived }) {
           <h3>Prioritized fixes</h3>
           {plan.length ? <ol className="plan-list">{plan.slice(0, 40).map(({ f, r }) => (
             <li key={f.id}><SevPill r={r} /><div className="grow"><strong>{f.title}</strong><div className="muted small">{actionText(f, d)}</div></div></li>
-          ))}</ol> : <Empty title="Nothing to fix" />}
+          ))}</ol> : hasUnchecked ? <Empty title="Breach check incomplete">No other risk signals found, but {plural(d.sum.unchecked, 'item')} could not be checked against known breaches.</Empty> : <Empty title="Nothing to fix" />}
           {plan.length > 40 && <p className="muted small">and {plan.length - 40} more in the CSV.</p>}
         </div>
         <div className="panel"><h3>Generate a strong replacement</h3><Generator /></div>
@@ -409,7 +413,8 @@ function History({ p }: { p: Project }) {
     <div className="stack">
       <div className="panel">
         <h3>Health over time</h3>
-        <Trend points={snaps.map(s => ({ label: s.label, v: s.summary.health }))} />
+        <Trend points={snaps.map(s => ({ label: s.label, v: s.summary.health, provisional: Boolean(s.summary.unchecked) }))} />
+        {snaps.some(s => s.summary.unchecked) && <p className="warn-text small">* Provisional score — breach check did not finish on one or more snapshots.</p>}
         {snaps.length < 2 && <p className="muted small">Import again next month (or save a snapshot after fixing things) to see a trend.</p>}
       </div>
       {snaps.length > 1 && (
@@ -421,10 +426,10 @@ function History({ p }: { p: Project }) {
           {diff ? (
             <>
               <div className="diff-stats">
-                <div><span>Health</span><strong className={diff.healthDelta > 0 ? 'ok-text' : diff.healthDelta < 0 ? 'bad-text' : ''}>{A.summary.health} → {B.summary.health} ({signed(diff.healthDelta)})</strong></div>
+                <div><span>Health</span><strong className={diff.healthDelta > 0 ? 'ok-text' : diff.healthDelta < 0 ? 'bad-text' : ''}>{A.summary.health}{A.summary.unchecked ? '*' : ''} → {B.summary.health}{B.summary.unchecked ? '*' : ''} ({signed(diff.healthDelta)})</strong></div>
                 <div><span>Items fixed</span><strong className="ok-text">{diff.fixed.length}</strong></div>
                 <div><span>Got worse</span><strong className={diff.worse.length ? 'bad-text' : ''}>{diff.worse.length}</strong></div>
-                <div><span>Breached</span><strong>{A.summary.breached} → {B.summary.breached}</strong></div>
+                <div><span>Breached</span><strong>{(A.summary.unchecked || B.summary.unchecked) ? `${breachLabel(A.summary)} → ${breachLabel(B.summary)}` : `${A.summary.breached} → ${B.summary.breached}`}</strong></div>
                 <div><span>Reused</span><strong>{A.summary.reused} → {B.summary.reused}</strong></div>
                 <div><span>Added / removed</span><strong>{diff.added.length} / {diff.removed.length}</strong></div>
               </div>
@@ -440,7 +445,7 @@ function History({ p }: { p: Project }) {
         <h3>Snapshots</h3>
         <ul className="snap-list">{[...snaps].reverse().map(s => (
           <li key={s.id}>
-            <div className="grow"><strong>{s.label}</strong><div className="muted small">{fmtDate(s.at)} · {plural(s.summary.n, 'item')} · health {s.summary.health}</div></div>
+            <div className="grow"><strong>{s.label}</strong><div className="muted small">{fmtDate(s.at)} · {plural(s.summary.n, 'item')} · {breachLabel(s.summary)} · health {s.summary.health}{s.summary.unchecked ? ' (provisional)' : ''}</div></div>
             <button type="button" className="btn danger-ghost sm" onClick={async () => {
               const prev = p
               await saveProject({ ...p, snapshots: p.snapshots.filter(x => x.id !== s.id) })

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { offboard, prioritized, reasons, severity, WEIGHTS } from './engine/risk.ts'
+import { breachLabel, offboard, prioritized, reasons, severity, WEIGHTS } from './engine/risk.ts'
 import { derive, today, useProject } from './projectData.ts'
 import { saveProject, type Attestation, type Project } from './store.ts'
 import { fmtDate, Link, NotFound, plural, toast } from './ui.tsx'
@@ -24,7 +24,7 @@ export default function Report({ id, kind }: { id: string; kind: string }) {
 function Main({ p }: { p: Project }) {
   const person = new URLSearchParams(location.search).get('person')
   const d = derive(p)
-  const g = grade(d.sum.health)
+  const g = grade(d.sum.health, d.sum.unchecked)
   const top = prioritized(d.eff, d.ctx).slice(0, 12)
   const snaps = [...p.snapshots].sort((a, b) => a.at.localeCompare(b.at))
   const plans = Object.entries(p.plans).map(([who, plan]) => {
@@ -63,12 +63,13 @@ function Main({ p }: { p: Project }) {
       </header>
       <section>
         <h2>Summary</h2>
-        <p>Overall health is <b>{d.sum.health}/100 ({g.label.toLowerCase()})</b>. {d.sum.breached} item{d.sum.breached === 1 ? '' : 's'} use a password found in public breaches, {d.sum.reused} share a password with another item and {d.sum.near} use a close variant of another password. {d.sum.old} passwords have not changed in over a year; {d.sum.missing2fa} sites support two-factor authentication without a saved TOTP code. {Object.keys(p.fixed).length ? `${plural(Object.keys(p.fixed).length, 'item')} have been rotated since the last import.` : ''}</p>
+        <p>Overall health is <b>{d.sum.health}/100 ({g.label.toLowerCase()})</b>. {d.sum.unchecked >= d.sum.n && d.sum.n > 0 ? 'The breach check did not run (all items are unchecked — re-import online to check against public breaches), ' : d.sum.unchecked > 0 ? `${d.sum.breached} item${d.sum.breached === 1 ? '' : 's'} use a password found in public breaches (${plural(d.sum.unchecked, 'item')} could not be checked), ` : `${d.sum.breached} item${d.sum.breached === 1 ? '' : 's'} use a password found in public breaches, `}{d.sum.reused} share a password with another item and {d.sum.near} use a close variant of another password. {d.sum.old} passwords have not changed in over a year; {d.sum.missing2fa} sites support two-factor authentication without a saved TOTP code. {Object.keys(p.fixed).length ? `${plural(Object.keys(p.fixed).length, 'item')} have been rotated since the last import.` : ''}</p>
         <div className="report-stats">
-          {([['Critical', d.sum.bySeverity.critical], ['High', d.sum.bySeverity.high], ['Medium', d.sum.bySeverity.medium], ['Low', d.sum.bySeverity.low], ['Breached', d.sum.breached], ['Reused', d.sum.reused], ['Old', d.sum.old], ['Shared', d.sum.shared]] as const).map(([l, n]) => <div key={l}><span>{l}</span><strong>{n}</strong></div>)}
+          {([['Critical', d.sum.bySeverity.critical], ['High', d.sum.bySeverity.high], ['Medium', d.sum.bySeverity.medium], ['Low', d.sum.bySeverity.low], [d.sum.unchecked ? (d.sum.unchecked >= d.sum.n ? 'Breached (not checked)' : 'Breached (partial)') : 'Breached', d.sum.breached], ...(d.sum.unchecked > 0 ? [['Unchecked', d.sum.unchecked] as const] : []), ['Reused', d.sum.reused], ['Old', d.sum.old], ['Shared', d.sum.shared]] as const).map(([l, n]) => <div key={l}><span>{l}</span><strong>{n}</strong></div>)}
         </div>
+        {d.sum.unchecked > 0 && <p className="warn-text small">Provisional report: breach status could not be checked for {plural(d.sum.unchecked, 'item')}; re-import online to complete the breach check.</p>}
       </section>
-      {snaps.length > 1 && <section><h2>Trend</h2><Trend points={snaps.map(s => ({ label: s.label, v: s.summary.health }))} /></section>}
+      {snaps.length > 1 && <section><h2>Trend</h2><Trend points={snaps.map(s => ({ label: s.label, v: s.summary.health, provisional: Boolean(s.summary.unchecked) }))} />{snaps.some(s => s.summary.unchecked) && <p className="warn-text small">* Provisional score — breach check did not finish on one or more snapshots.</p>}</section>}
       <section>
         <h2>Highest-risk items</h2>
         <table className="table report-table">
@@ -127,7 +128,8 @@ function Attest({ p }: { p: Project }) {
         ))}</ol>
         <h3>Evidence as of {fmtDate(Date.now())}</h3>
         <ul>
-          <li>Vault health score {d.sum.health}/100 across {plural(d.sum.n, 'item')}; {d.sum.breached} breached, {d.sum.reused} reused.</li>
+          <li>Vault health score {d.sum.health}/100 ({grade(d.sum.health, d.sum.unchecked).label.toLowerCase()}) across {plural(d.sum.n, 'item')}; {breachLabel(d.sum)}, {d.sum.reused} reused.</li>
+          {d.sum.unchecked > 0 && <li className="warn-text">Breach check incomplete ({plural(d.sum.unchecked, 'item')} unchecked); this score is provisional and should be re-run online before signing off on breach hygiene.</li>}
           <li>{plural(p.snapshots.length, 'review snapshot')} on record{p.snapshots.length ? `, the first on ${fmtDate([...p.snapshots].sort((x, y) => x.at.localeCompare(y.at))[0].at)}` : ''}.</li>
           {plans.length ? plans.map(([who, plan]) => <li key={who}>Offboarding of {who}: started {fmtDate(plan.created)}, {Object.keys(plan.done).length} credentials rotated.</li>) : <li>No offboarding plans recorded.</li>}
         </ul>

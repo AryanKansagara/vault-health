@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react'
-import { FORMAT_LABEL, parse1pux, parseExport, type Format, type Issue, type ParseResult } from './engine/formats.ts'
+import { FORMAT_LABEL, parseExport, parseJsonExport, type Format, type Issue, type ParseResult } from './engine/formats.ts'
 import { readZipEntry } from './engine/unzip.ts'
 import { toCsv } from './engine/csv.ts'
 import { clearImport, holdImport } from './checks.ts'
@@ -17,14 +17,11 @@ async function readExport(file: File, forced?: Format): Promise<ParseResult> {
   if (head[0] === 0x50 && head[1] === 0x4b) {
     const data = await readZipEntry(buf, 'export.data')
     if (!data) throw new Error('This zip has no export.data inside. Is it a 1Password .1pux export?')
-    return parse1pux(JSON.parse(new TextDecoder().decode(data)))
+    return parseJsonExport(new TextDecoder().decode(data), '1pux')
   }
   const text = new TextDecoder().decode(buf)
-  if (text.trimStart().startsWith('{')) {
-    const j = JSON.parse(text)
-    if (j.accounts) return parse1pux(j)
-    throw new Error('JSON exports are not supported yet. Export as CSV instead (see the docs).')
-  }
+  const trimmed = text.trimStart()
+  if (/^\{|^\[(?:\s*$|\s*[\{"\[\]tfn0-9-])/i.test(trimmed)) return parseJsonExport(text, 'json')
   return parseExport(text, forced)
 }
 

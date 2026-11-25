@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { breachLabel } from './engine/risk.ts'
 import { SAMPLES } from './engine/sample.ts'
 import { createSampleProject, derive } from './projectData.ts'
 import { blankProject, deleteProject, saveProject, useProjects, type Project } from './store.ts'
@@ -81,7 +82,7 @@ export default function Workspace() {
 function Card({ p }: { p: Project }) {
   const [renaming, setRenaming] = useState(false)
   const d = useMemo(() => derive(p), [p])
-  const g = grade(d.sum.health)
+  const g = grade(d.sum.health, d.sum.unchecked)
   const open = Object.entries(p.plans).filter(([person]) => person).length
   return (
     <article className="project-card">
@@ -96,7 +97,7 @@ function Card({ p }: { p: Project }) {
       {p.findings.length ? (
         <div className="card-score">
           <span className={`score-chip tone-${g.tone}`}>{d.sum.health}</span>
-          <div><strong>{g.label}</strong><div className="muted small">{plural(d.sum.n, 'item')} · {d.sum.breached} breached · {d.sum.reused} reused</div></div>
+          <div><strong>{g.label}</strong><div className="muted small">{plural(d.sum.n, 'item')} · {breachLabel(d.sum)} · {d.sum.reused} reused</div></div>
         </div>
       ) : <p className="muted small">No import yet. <Link href={`/app/p/${p.id}/import`}>Import an export</Link></p>}
       <dl className="mini-stats">
